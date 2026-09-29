@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v76</title>
+<title>Ballast — rooftop PV ballast design · v85</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -144,6 +144,10 @@ label.chk input{width:.95rem;height:.95rem;accent-color:var(--gov);flex:0 0 auto
 .locknote b{color:var(--gov);font-weight:700}
 .f.lock input,.f.lock select{background:var(--sunk);color:var(--ink2)}
 .hide{display:none!important}
+.roofbar{display:flex;flex-wrap:wrap;gap:.3rem;margin:.1rem 0 .6rem}
+.roofbar button{font-size:.72rem;padding:.3rem .55rem}
+.roofbar button.cur{background:var(--ink);color:#fff;border-color:var(--ink)}
+.roofbar .sep{flex:1 1 auto}
 /* The jump strip was hand-written and had drifted: five sections had no link
    and two of the links pointed at panels rather than headings. It is now built
    from the document itself, in document order, so it cannot fall out of step. */
@@ -567,7 +571,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip">v55 · engine 3.0.0</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v85 · engine 4.3.3</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -581,7 +585,8 @@ tbody tr:last-child td{border-bottom:0}
         <button type="button" id="saveBtn">Save file</button>
         <button type="button" id="loadBtn">Open file</button>
         <button type="button" id="printBtn">Print</button>
-        <button type="button" id="exportDocxMore">Engineering report</button>
+        <button type="button" id="exportDocxMore" title="The full design record: method, derivations and every check">Engineering report</button>
+        <button type="button" id="exportShortMore" title="Wind assumptions and ballast required, without the method. For clients and installers.">Summary report</button>
         <button type="button" id="resetBtn" title="Load the built-in worked example">Reset</button>
       </div>
       <input type="file" id="fileIn" accept=".json" class="hide"/>
@@ -969,7 +974,9 @@ tbody tr:last-child td{border-bottom:0}
         <h2>Geometry</h2>
         <span class="eyebrow">click a panel to design it · click another array to switch · drag to slide that field</span>
       </div>
+      <div class="roofbar" id="roofBar" role="group" aria-label="Roofs on this site"></div>
       <div class="draw-g">
+        <figure id="figSite"></figure>
         <figure id="figStep"></figure>
         <figure id="figSection"></figure>
         <figure id="figPlan"></figure>
@@ -1182,10 +1189,13 @@ tbody tr:last-child td{border-bottom:0}
         It multiplies the <b>unfavourable</b> wind factor only. CC1 (0.9) is for low loss of human life
         (agricultural / storage where people do not normally enter). Default is CC2. Favourable 0.9G is left alone.</p>
       <p class="note locknote hide" id="stackLockTun" role="status"></p>
-      <p class="note">PV2 §31.6.2 floors a tunnel-based reduction at <b>0.50</b> of the
-        Figure 29.9-1 value when the geometry is within the figure's limits, and <b>0.65</b> when
-        it is not. Going below the floor needs an independent peer review.
-        Literature γ<sub>def</sub> and f_tunnel cannot stack — <code>noStackBoth</code> withholds the screening cut whenever a product tunnel is claimed.</p>
+      <p class="note">A wind-tunnel reduction has a floor. Under <b>PV2-2017 / ASCE 7-16
+        &sect;31.6.1.1</b> it is <b>0.65</b> of the Figure 29.4-7 value, whatever the geometry. The
+        retained PV2-2012 basis used &sect;31.6.2: 0.50 within Figure 29.9-1's limits, 0.65 outside.
+        Going below the floor needs an independent peer review. The floor in force on this job is
+        printed on the Tilt sheet and in the report.
+        Literature &gamma;<sub>def</sub> and f_tunnel cannot stack &mdash; <code>noStackBoth</code>
+        withholds the screening cut whenever a product tunnel is claimed.</p>
       <div class="sub">Rail reactions from load eccentricity — beyond PV2</div>
       <label class="chk"><input type="checkbox" id="railCheck"/>
         Check the split of net force between the low- and high-side supports</label>
@@ -1268,10 +1278,10 @@ tbody tr:last-child td{border-bottom:0}
 
   <section class="verify">
     <h2 id="sec-verifyEngine">Engine verification</h2>
-    <p class="note" style="margin-top:.35rem">Runs the worked examples from SEAOC PV2-2012
-      Appendix A against this engine and reports pass or fail per value. Locations 1–8 are
-      published with their answers, so the standard supplies its own test suite. Run this after
-      any change.</p>
+    <p class="note" style="margin-top:.35rem">Runs the SEAOC PV2-2017 worked examples, the retained
+      PV2-2012 Appendix A locations, and the engine's own regression tests, and reports pass or fail
+      per value. The standards publish their answers, so they supply their own test suite. Run this
+      after any change, and after uploading, to confirm the deployed copy is the one you tested.</p>
     <button type="button" id="runV" class="go" style="margin-top:.7rem">Run verification</button>
     <p id="vsum"></p>
     <div id="vres"></div>
@@ -1312,7 +1322,7 @@ tbody tr:last-child td{border-bottom:0}
   var SANS_CR_COEFF = 1.36;
   /* SANS 10160-3 Table 4 — air density vs altitude (kg/m³). Linear interpolation. */
   var SANS_RHO_TABLE = [[0, 1.20], [500, 1.12], [1000, 1.06], [1500, 1.00], [2000, 0.94]];
-  var ENGINE_VERSION = "3.10.1";
+  var ENGINE_VERSION = "4.3.3";
   var SCHEMA_VERSION = 4;
 
   /* ---- ASCE 7 exposure constants (Table 26.9-1) --------------------------- */
@@ -3452,7 +3462,8 @@ tbody tr:last-child td{border-bottom:0}
   function zoneRowFrom(rr, z, occ) {
     return {
       zone: z,
-      name: ZONE_LABEL[z],
+      /* PV2-2017 / ASCE 7-16 names the deep-interior zone 1-prime. */
+      name: (z === 0 && rr && rr.c17) ? "1\u2032 (deep interior)" : ZONE_LABEL[z],
       occupancy: occ.occupancy,
       nom: rr.nom ? rr.nom.value : NaN,
       E: rr.E,
@@ -3490,7 +3501,12 @@ tbody tr:last-child td{border-bottom:0}
 
   /* Zone × E grid holding this unit's geometry (matches the on-screen matrix). */
   function zoneEGrid(rawInput) {
-    var Es = [1.0, 1.15, 1.5, 2.0];
+    /* The columns must be values the basis permits. PV2-2017 / ASCE 7-16 caps
+       gamma_E at 1.5, so a 2.0 column offered a sensitivity to a value the basis
+       forbids; the 2017 set brackets the 4.3.4 ramp instead. The Tilt sheet was
+       corrected in v76, but the report builds this table from here. */
+    var c17g = !(rawInput && rawInput.codeBasis === "pv2012");
+    var Es = c17g ? [1.0, 1.17, 1.33, 1.5] : [1.0, 1.15, 1.5, 2.0];
     var rows = [];
     for (var z = 0; z <= 3; z++) {
       var cells = Es.map(function (e) {
@@ -3503,7 +3519,8 @@ tbody tr:last-child td{border-bottom:0}
         var rr = compute(inp);
         return { E: e, kg: isFinite(rr.requiredKg) ? rr.requiredKg : NaN, valid: !!rr.valid, governing: rr.governing };
       });
-      rows.push({ zone: z, name: ZONE_LABEL[z], cells: cells });
+      rows.push({ zone: z,
+        name: (z === 0 && c17g) ? "1\u2032 (deep interior)" : ZONE_LABEL[z], cells: cells });
     }
     return { Es: Es, rows: rows };
   }
@@ -3570,12 +3587,20 @@ window.BallastDraw = (function () {
       'markerWidth="6" markerHeight="6" orient="auto-start-reverse">' +
       '<path d="M10,1 L0,5 L10,9 z" fill="var(--ink2)"/></marker></defs>';
   }
+  /* Escape text for SVG. Drawings go into reports by being loaded as images,
+     which parses them as strict XML: one bare "&" or "<" in a label — an array
+     called "North & South", say — and the whole figure drops out of the report
+     without an error. No caller of txt() passes markup, so it escapes always. */
+  function xe(v) {
+    return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
   function txt(x, y, s, cls, anchor, rot, baseline) {
     return '<text class="' + (cls || "dl") + '" x="' + fx(x, 1) + '" y="' + fx(y, 1) + '"' +
       (anchor ? ' text-anchor="' + anchor + '"' : '') +
       (baseline ? ' dominant-baseline="' + baseline + '"' : '') +
       (rot ? ' transform="rotate(' + rot + ',' + fx(x, 1) + ',' + fx(y, 1) + ')"' : '') +
-      '>' + s + '</text>';
+      '>' + xe(s) + '</text>';
   }
   /* horizontal dimension between px1..px2 at py, label centred on the line */
   function hdim(px1, px2, py, label, id, below, lo) {
@@ -3627,7 +3652,9 @@ window.BallastDraw = (function () {
       { k: "sw3", lab: "corner", z: "3", n: c[3], fill: "#D64545" },
       { k: "sw2", lab: "edge", z: "2", n: c[2], fill: "#E0A01A" },
       { k: "sw1", lab: "interior", z: "1", n: c[1], fill: "#3D7EA6" },
-      { k: "sw0", lab: "deep interior", z: "0", n: c[0], fill: "#2A9D8F" }
+      { k: "sw0", lab: "deep interior",
+        z: (typeof window !== "undefined" && window.__pv2Basis === "pv2012") ? "0" : "1\u2032",
+        n: c[0], fill: "#2A9D8F" }
     ];
     var roofAll3 = (2 * apv + 1e-6 >= (WL || 0) / 2 && 2 * apv + 1e-6 >= (WS || 0) / 2);
     var w = 152, h = roofAll3 ? 249 : 211, pad = 11, rowH = 17;
@@ -3637,7 +3664,8 @@ window.BallastDraw = (function () {
       '" fill="#fff" stroke="#132229"/>';
     o += '<rect class="legin" x="3" y="3" width="' + (w - 6) + '" height="' + (h - 6) + '"/>';
     o += txt(pad, 18, "LEGEND", "leghd");
-    o += txt(pad, 30, "PV2 ROOF ZONES", "legsub");
+    o += txt(pad, 30, (typeof window !== "undefined" && window.__pv2Basis === "pv2012")
+      ? "PV2-2012 ROOF ZONES" : "PV2-2017 ROOF ZONES", "legsub");
     var yy = 46;
     for (var i = 0; i < rows.length; i++) {
       o += '<rect class="sw ' + rows[i].k + '" x="' + pad + '" y="' + (yy - swH + 1) +
@@ -3659,16 +3687,17 @@ window.BallastDraw = (function () {
       '" width="' + swW + '" height="' + swH + '" fill="none"/>';
     o += txt(pad + swW + 6, yy, "setback", "legl");
     yy += rowH + 6;
-    o += txt(pad, yy, "2 a_pv   " + fx(2 * apv, 1) + " m", "legnote");
+    var ZLg = zBandLbl();
+    o += txt(pad, yy, "2" + ZLg + "   " + fx(2 * apv, 1) + " m", "legnote");
     yy += 13;
-    o += txt(pad, yy, "5 a_pv   " + fx(5 * apv, 1) + " m", "legnote");
+    o += txt(pad, yy, "5" + ZLg + "   " + fx(5 * apv, 1) + " m", "legnote");
     yy += 13;
     o += txt(pad, yy, "glass    " + fx(L.modW, 2) + " \u00d7 " + fx(L.modH, 2) + " m", "legnote");
     if (roofAll3) {
       yy += 14;
       o += txt(pad, yy, "whole roof is zone 3:", "legnote");
       yy += 11;
-      o += txt(pad, yy, "2 a_pv exceeds both", "legnote");
+      o += txt(pad, yy, "2" + ZLg + " exceeds both", "legnote");
       yy += 11;
       o += txt(pad, yy, "half-widths of the plan", "legnote");
     }
@@ -4292,6 +4321,258 @@ window.BallastDraw = (function () {
      roofOff carries the offset back into building coordinates for drawing. */
   /* PV2-2012 draws the zone bands off a_pv; PV2-2017 / ASCE 7-16 draws them off
      the mean roof height. The plan legend must say which. */
+  /* ---- site plan ----------------------------------------------------------
+     Every roof on the site, to one scale, so a multi-building job can be laid
+     out visually before any of it is calculated. The selected roof is filled;
+     the others are outlined. Each carries its plan size and height, because on
+     a site plan the height is the thing you cannot see. */
+  function sitePlan(S0) {
+    var S = S0 || {};
+    var roofs = (S.roofs && S.roofs.length) ? S.roofs : [];
+    if (!roofs.length) return "";
+    var sel = Math.max(0, Math.min(roofs.length - 1, n(S.roofI, 0)));
+
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    roofs.forEach(function (rf) {
+      x0 = Math.min(x0, n(rf.x, 0)); y0 = Math.min(y0, n(rf.y, 0));
+      x1 = Math.max(x1, n(rf.x, 0) + n(rf.WL, 0));
+      y1 = Math.max(y1, n(rf.y, 0) + n(rf.WS, 0));
+    });
+    var padM = Math.max(6, 0.06 * Math.max(x1 - x0, y1 - y0));
+    x0 -= padM; y0 -= padM; x1 += padM; y1 += padM;
+
+    var VB_W = 700, MT = 34, MB = 44, ML = 12, MR = 12;
+    var sc = (VB_W - ML - MR) / (x1 - x0);
+    var VB_H = MT + MB + (y1 - y0) * sc;
+    var X = function (v) { return ML + (v - x0) * sc; };
+    var Y = function (v) { return MT + (v - y0) * sc; };
+
+    var o = '<svg viewBox="0 0 ' + fx(VB_W, 0) + ' ' + fx(VB_H, 1) +
+      '" role="img" aria-label="Site plan showing every roof on the job to one scale.">';
+    o += defs("s");
+    o += txt(ML, MT - 16, "SITE PLAN \u2014 " + roofs.length + " roof" +
+      (roofs.length === 1 ? "" : "s") + ", one scale", "dt");
+
+    roofs.forEach(function (rf, ix) {
+      var on = ix === sel;
+      var px = X(n(rf.x, 0)), py = Y(n(rf.y, 0));
+      var pw = n(rf.WL, 0) * sc, pd = n(rf.WS, 0) * sc;
+      o += '<rect data-roof="' + ix + '" x="' + fx(px, 1) + '" y="' + fx(py, 1) +
+        '" width="' + fx(pw, 1) + '" height="' + fx(pd, 1) +
+        '" fill="' + (on ? "#CBD8E2" : "#EEF2F4") + '" fill-opacity="' + (on ? ".95" : ".8") +
+        '" stroke="#132229" stroke-width="' + (on ? "1.8" : "1") + '"' +
+        (on ? "" : ' stroke-dasharray="5 3"') + ' style="cursor:move"><title>' +
+        xe(rf.name) + "  \u00b7  " + fx(n(rf.WL, 0), 1) + " \u00d7 " + fx(n(rf.WS, 0), 1) +
+        " m  \u00b7  h = " + fx(n(rf.h, 0), 2) + " m  \u00b7  parapet " +
+        fx(n(rf.hpt, 0), 2) + " m" + (on ? "  \u00b7  selected" : "  \u00b7  click to select") +
+        "</title></rect>";
+      if (pw > 54 && pd > 26) {
+        o += txt(px + pw / 2, py + pd / 2 - 3, rf.name, on ? "dt" : "dl", "middle");
+        o += txt(px + pw / 2, py + pd / 2 + 11,
+          fx(n(rf.WL, 0), 0) + " \u00d7 " + fx(n(rf.WS, 0), 0) + " m  \u00b7  h " +
+          fx(n(rf.h, 0), 1) + " m", "dl", "middle");
+      } else {
+        o += txt(px + pw / 2, py - 4, rf.name, on ? "dt" : "dl", "middle");
+      }
+      if (on) {
+        var gs = 9;
+        o += '<rect data-roofgrip="' + ix + '" x="' + fx(px + pw - gs, 1) + '" y="' +
+          fx(py + pd - gs, 1) + '" width="' + gs + '" height="' + gs +
+          '" fill="#132229" stroke="#fff" stroke-width="1" style="cursor:nwse-resize">' +
+          "<title>Drag to resize " + xe(rf.name) + "</title></rect>";
+      }
+    });
+
+    /* one scale bar, so the drawing can be read off the page */
+    var span = (x1 - x0), step = Math.pow(10, Math.floor(Math.log(span / 4) / Math.LN10));
+    if (span / step > 40) step *= 5; else if (span / step > 20) step *= 2;
+    var bx = ML, byy = VB_H - MB + 22;
+    o += '<line class="dim" x1="' + fx(bx, 1) + '" y1="' + fx(byy, 1) + '" x2="' +
+      fx(bx + step * sc, 1) + '" y2="' + fx(byy, 1) + '"/>';
+    o += txt(bx + step * sc + 6, byy + 4, fx(step, 0) + " m", "dl");
+    o += txt(VB_W - MR, byy + 4,
+      "selected roof is filled \u00b7 drag to move \u00b7 corner grip to resize", "dl", "end");
+    o += "</svg>";
+    return o;
+  }
+
+  /* ---- roof zone map --------------------------------------------------------
+     The roof itself, coloured by the wind zone each part of it falls in, with
+     no panels drawn. The panel plan colours panels, so where the whole array
+     sits in one zone it cannot show where the others are. This drawing does.
+
+     It is painted by sampling the roof on a grid and asking the engine's own
+     deriveZone() for each cell, so the regions are exactly the ones the
+     calculation uses rather than a separate geometric construction that could
+     drift from it. Runs of equal zone along a row are merged into one rect. */
+  function zoneMap(S0, r0) {
+    var S = (r0 && r0.inputs) ? r0.inputs : S0;
+    var WL = n(S.wLong, 0), WS = n(S.wShort, 0), h = n(S.h, 10);
+    if (!(WL > 0 && WS > 0)) return "";
+    var c17 = !(S.codeBasis === "pv2012" ||
+      (typeof window !== "undefined" && window.__pv2Basis === "pv2012"));
+    var E0 = (typeof window !== "undefined") ? window.BallastEngine : null;
+    var apv = (E0 && E0.aPv) ? E0.aPv(h, WL, WS, c17 ? "pv2017" : "pv2012")
+                             : Math.min(h, 0.5 * Math.sqrt(h * WL));
+    var obt = !!S.obtuseCorner;
+    /* Opaque tints, pre-blended with white. Runs overlap by 0.4 px to hide
+       anti-aliasing seams; at partial opacity those overlaps darkened and the
+       roof printed as horizontal stripes. Opaque overlaps are invisible. */
+    var ZC = { 3: "#E68C8C", 2: "#ECC471", 1: "#87AFC8", 0: "#7BC2BA" };
+    var ZN = { 3: "3  corner", 2: "2  edge", 1: "1  interior",
+               0: c17 ? "1\u2032 deep interior" : "0  deep interior" };
+    var BL = c17 ? "h" : "a_pv";
+    var b2 = 2 * apv, b5 = 5 * apv;
+
+    /* Room above and to the left for two rows of zone-band dimensions. */
+    var VB_W = 740, ML = 84, MR = 200, MT = 88, MB = 50;
+    var PW = VB_W - ML - MR;
+    var sc = Math.min(PW / WL, 330 / WS);
+    var PH = WS * sc, VB_H = MT + PH + MB;
+    var ox = ML + (PW - WL * sc) / 2;
+    var X = function (v) { return ox + v * sc; };
+    var Y = function (v) { return MT + v * sc; };
+
+    /* ---- zones, painted from the engine's own classification ---- */
+    var nx = 120, ny = Math.max(24, Math.round(120 * WS / WL));
+    var dx = WL / nx, dy = WS / ny;
+    var area = { 0: 0, 1: 0, 2: 0, 3: 0 };
+    var cells = "";
+    var dz = (E0 && E0.deriveZone) ? E0.deriveZone : null;
+    for (var j = 0; j < ny; j++) {
+      var cy = (j + 0.5) * dy, run = null, runStart = 0;
+      for (var i = 0; i <= nx; i++) {
+        var z = null;
+        if (i < nx) {
+          var cx = (i + 0.5) * dx;
+          z = dz ? dz({ N: cy, S: WS - cy, W: cx, E: WL - cx }, apv, obt).zone : 3;
+          area[z] += dx * dy;
+        }
+        if (z !== run) {
+          if (run !== null) {
+            cells += '<rect x="' + fx(X(runStart * dx), 2) + '" y="' + fx(Y(j * dy), 2) +
+              '" width="' + fx((i - runStart) * dx * sc + 0.4, 2) + '" height="' +
+              fx(dy * sc + 0.4, 2) + '" fill="' + ZC[run] + '"/>';
+          }
+          run = z; runStart = i;
+        }
+      }
+    }
+
+    var o = '<svg viewBox="0 0 ' + VB_W + " " + fx(VB_H, 1) + '" role="img" aria-label="Roof ' +
+      'zone map: the roof coloured by wind zone, with the zone-band distances from the edges and ' +
+      'every panel drawn in place.">';
+    o += defs("z");
+    o += txt(ML, 18, "ROOF ZONES AND PANEL LAYOUT \u2014 " +
+      (c17 ? "PV2-2017 / ASCE 7-16 Fig. 29.4-7" : "PV2-2012 Fig. 29.9-1"), "dt");
+    o += txt(ML, 31, "zone bands are measured from every roof edge: 2" + BL + " = " + fx(b2, 1) +
+      " m, 5" + BL + " = " + fx(b5, 1) + " m  (h = " + fx(h, 2) + " m)", "dl");
+    o += cells;
+
+    /* ---- panels, placed exactly as the roof plan places them ---- */
+    var packs = [];
+    try { packs = layoutAll(S, r0) || []; } catch (e) { packs = []; }
+    var ai = Math.round(n(S.arrayI, 0));
+    var selC = Math.round(n(S.selCol, 1)) - 1, selR = Math.round(n(S.selRow, 1)) - 1;
+    var nPanels = 0, designBox = "";
+    packs.forEach(function (pk) {
+      var Lp = pk.L;
+      if (!Lp || !Lp.units) return;
+      var offX = Lp.roofOff ? Lp.roofOff.x : 0, offY = Lp.roofOff ? Lp.roofOff.y : 0;
+      var arot = wrapArot(Lp.arrayRot), rotOn = arot !== 0;
+      var occW = Lp.occW || Lp.AL, occH = Lp.occH || Lp.AW;
+      if (rotOn) {
+        o += '<g transform="rotate(' + fx(arot, 3) + ', ' +
+          fx(X(n(Lp.acx, Lp.ax + occW / 2) + offX), 3) + ', ' +
+          fx(Y(n(Lp.acy, Lp.ay + occH / 2) + offY), 3) + ')">';
+      }
+      Lp.units.forEach(function (p) {
+        nPanels++;
+        var px = X(p.x + offX), py = Y(p.y + offY);
+        var pw = Math.max(0.6, p.w * sc - 0.6), ph = Math.max(0.6, p.h * sc - 0.6);
+        var isDesign = pk.i === ai && p.i === selC && p.j === selR;
+        var rect = '<rect x="' + fx(px, 2) + '" y="' + fx(py, 2) + '" width="' + fx(pw, 2) +
+          '" height="' + fx(ph, 2) + '" fill="#FFFFFF" fill-opacity="' +
+          (isDesign ? ".95" : ".55") + '" stroke="#132229" stroke-width="' +
+          (isDesign ? "1.8" : ".55") + '"/>';
+        if (isDesign) designBox = rect; else o += rect;
+      });
+      if (designBox && rotOn) { o += designBox; designBox = ""; }
+      if (rotOn) o += "</g>";
+    });
+    o += designBox;
+
+    /* ---- roof outline, band lines, setback (over the panels, so they read) ---- */
+    o += '<rect x="' + fx(X(0), 1) + '" y="' + fx(Y(0), 1) + '" width="' + fx(WL * sc, 1) +
+      '" height="' + fx(WS * sc, 1) + '" fill="none" stroke="#132229" stroke-width="1.6"/>';
+    [[b2, "2" + BL], [b5, "5" + BL]].forEach(function (bd) {
+      var b = bd[0];
+      if (2 * b < WL && 2 * b < WS) {
+        o += '<rect x="' + fx(X(b), 1) + '" y="' + fx(Y(b), 1) + '" width="' +
+          fx((WL - 2 * b) * sc, 1) + '" height="' + fx((WS - 2 * b) * sc, 1) +
+          '" fill="none" stroke="#132229" stroke-width=".9" stroke-dasharray="5 3"/>';
+      }
+    });
+    var sb = n(S.setback, 0);
+    if (sb > 0 && 2 * sb < WL && 2 * sb < WS) {
+      o += '<rect x="' + fx(X(sb), 1) + '" y="' + fx(Y(sb), 1) + '" width="' +
+        fx((WL - 2 * sb) * sc, 1) + '" height="' + fx((WS - 2 * sb) * sc, 1) +
+        '" fill="none" stroke="#132229" stroke-width=".7" stroke-dasharray="1.5 2"/>';
+    }
+
+    /* ---- zone-band distances from the edges ----
+       Along the north edge and down the west edge; the bands are the same from
+       every edge, so one of each is enough. A band longer than the roof side is
+       drawn to the far edge and says so, rather than being left off. */
+    function bandLabel(b, side, tag) {
+      return tag + " = " + fx(b, 1) + " m" + (b > side + 1e-9 ? "  (beyond the roof)" : "");
+    }
+    o += hdim(X(0), X(Math.min(b2, WL)), Y(0) - 14, bandLabel(b2, WL, "2" + BL), "z");
+    o += hdim(X(0), X(Math.min(b5, WL)), Y(0) - 34, bandLabel(b5, WL, "5" + BL), "z");
+    o += vdim(Y(0), Y(Math.min(b2, WS)), X(0) - 14, bandLabel(b2, WS, "2" + BL), "z", false);
+    o += vdim(Y(0), Y(Math.min(b5, WS)), X(0) - 36, bandLabel(b5, WS, "5" + BL), "z", false);
+    o += hdim(X(0), X(WL), Y(WS) + 20, "W_L " + fx(WL, 1) + " m", "z", true);
+    o += vdim(Y(0), Y(WS), X(WL) + 18, "W_S " + fx(WS, 1) + " m", "z", true);
+
+    /* ---- legend ---- */
+    var lx = VB_W - MR + 40, ly = MT + 4, tot = WL * WS;
+    o += txt(lx, ly, "ZONE", "dt");
+    o += txt(VB_W - 10, ly, "roof", "dl", "end"); ly += 16;
+    [3, 2, 1, 0].forEach(function (zz) {
+      var pc = tot > 0 ? 100 * area[zz] / tot : 0;
+      o += '<rect x="' + lx + '" y="' + (ly - 9) + '" width="14" height="10" fill="' + ZC[zz] +
+        '" stroke="#132229" stroke-width=".5"/>';
+      o += txt(lx + 20, ly, ZN[zz], "dl");
+      o += txt(VB_W - 10, ly, pc < 0.05 ? "\u2014" : fx(pc, pc < 10 ? 1 : 0) + " %", "dl", "end");
+      ly += 16;
+    });
+    ly += 6;
+    o += '<rect x="' + lx + '" y="' + (ly - 9) + '" width="14" height="10" fill="#fff" ' +
+      'fill-opacity=".55" stroke="#132229" stroke-width=".55"/>';
+    o += txt(lx + 20, ly, "panel  (" + nPanels + ")", "dl"); ly += 15;
+    o += '<rect x="' + lx + '" y="' + (ly - 9) + '" width="14" height="10" fill="#fff" ' +
+      'stroke="#132229" stroke-width="1.8"/>';
+    o += txt(lx + 20, ly, "design unit", "dl"); ly += 15;
+    o += '<line x1="' + lx + '" y1="' + (ly - 4) + '" x2="' + (lx + 14) + '" y2="' + (ly - 4) +
+      '" stroke="#132229" stroke-width=".9" stroke-dasharray="5 3"/>';
+    o += txt(lx + 20, ly, "zone band", "dl"); ly += 15;
+    if (sb > 0) {
+      o += '<line x1="' + lx + '" y1="' + (ly - 4) + '" x2="' + (lx + 14) + '" y2="' + (ly - 4) +
+        '" stroke="#132229" stroke-width=".7" stroke-dasharray="1.5 2"/>';
+      o += txt(lx + 20, ly, "setback " + fx(sb, 2) + " m", "dl"); ly += 15;
+    }
+    var only = [0, 1, 2, 3].filter(function (zz) { return area[zz] > 1e-9; });
+    if (only.length === 1) {
+      ly += 6;
+      o += txt(lx, ly, "Whole roof is zone " + (only[0] === 0 && c17 ? "1\u2032" : only[0]) + ":",
+        "dl"); ly += 12;
+      o += txt(lx, ly, "2" + BL + " is wider than", "dl"); ly += 12;
+      o += txt(lx, ly, "half the roof plan.", "dl");
+    }
+    o += "</svg>";
+    return o;
+  }
+
   function zBandLbl() {
     return (typeof window !== "undefined" && window.__pv2Basis === "pv2017") ? "h" : "a_pv";
   }
@@ -4344,7 +4625,23 @@ window.BallastDraw = (function () {
   /* Layout every field on the roof. Each call is independent.
      Parts of one array share arrayRot and rotate about the combined AABB centre. */
   function layoutAll(S, r) {
-    var list = (S && S.arrays && S.arrays.length) ? S.arrays : null;
+    /* Draw and lay out only the arrays that stand on the roof being calculated.
+       Arrays on the other roofs of the site keep their own geometry untouched;
+       they are laid out when that roof is selected, and swept roof by roof for
+       the combined schedule. */
+    var all = (S && S.arrays && S.arrays.length) ? S.arrays : null;
+    var rid = (S && S.roofs && S.roofs.length)
+      ? (S.roofs[Math.max(0, Math.min(S.roofs.length - 1, n(S.roofI, 0)))] || {}).id : null;
+    var list = all;
+    if (all && rid) {
+      /* An empty result means this roof genuinely has no arrays on it. Falling
+         back to the full list drew ANOTHER roof's arrays on this roof's outline
+         — a 48-unit array from an 84 x 48 m roof appearing on a 40 x 30 m one,
+         with that roof's zones and coefficients. Return nothing instead and let
+         the callers show an empty roof. */
+      list = all.filter(function (a) { return !a.roofId || a.roofId === rid; });
+      if (!list.length) return [];
+    }
     if (!list) return [{ i: 0, part: 0, L: layoutArray(S, r) }];
     var out = [], i, b;
     var ai0 = Math.round(n(S.arrayI, 0));
@@ -4352,6 +4649,7 @@ window.BallastDraw = (function () {
     var obtuseAll = !!(S.obtuseCorner);
     for (i = 0; i < list.length; i++) {
       var a = list[i];
+      var realI = all ? all.indexOf(a) : i;
       var blocks = (a.parts && a.parts.length) ? a.parts : [a];
       var partI = Math.round(n(a.partI, 0));
       var arot = (a.arrayRot != null) ? n(a.arrayRot, 0) : n(S.arrayRot, 0);
@@ -4369,7 +4667,7 @@ window.BallastDraw = (function () {
         /* Measure the unrotated occupancy; skip pre-fit so a later
            applyArrayRot can still reach the east/west setback. */
         if (wrapArot(arot) !== 0) src._skipFit = true;
-        items.push({ i: i, part: b, L: layoutArray(sForArray(S, src), r) });
+        items.push({ i: realI, part: b, L: layoutArray(sForArray(S, src), r) });
       }
       var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (b = 0; b < items.length; b++) {
@@ -4400,6 +4698,7 @@ window.BallastDraw = (function () {
   function plan(S0, r) {
     var S = (r && r.inputs) ? r.inputs : S0;
     var packs = layoutAll(S, r);
+    var noArrays = !packs.length;
     var ai0 = Math.round(n(S.arrayI, 0));
     if (ai0 < 0 || ai0 >= ((S.arrays && S.arrays.length) || packs.length)) ai0 = 0;
     var wantPart = (S.arrays && S.arrays[ai0]) ? Math.round(n(S.arrays[ai0].partI, 0)) : 0;
@@ -4410,8 +4709,27 @@ window.BallastDraw = (function () {
         if ((packs[pi0].part || 0) === wantPart) break;
       }
     }
-    if (!L) L = packs[0].L;
-    var VB_W = 940, VB_H = 500, ML = 96, MR = 200, MT = 40, MB = 48;
+    if (!L && packs.length) L = packs[0].L;
+    if (!L) {
+      /* No arrays on this roof. Lay out an empty one so the roof, its zones and
+         its setback can still be drawn, then the guard below prints the note. */
+      L = layoutArray(S, r);
+    }
+    var VB_W = 940, VB_H = 520, ML = 96, MR = 200, MB = 48;
+    /* The top margin is sized from the caption, not fixed. The roof is centred
+       vertically, so its top edge is never above MT; the d_W / d_E strings sit
+       16 px above that edge. A fixed 66 px let a three-line caption run into
+       them. Counting the lines first and clearing the last by 38 px holds for
+       any roof proportion. The canvas grows rather than the roof shrinking. */
+    var capN = 0;
+    (function () {
+      var wl = n(L.WL, 1), ws = n(L.WS, 1), bb = 2 * n(L.apv, 0), bb5 = 5 * n(L.apv, 0);
+      if (packs.length > 1) capN++;
+      if (bb5 + 1e-9 >= wl / 2 && bb5 + 1e-9 >= ws / 2) capN++;
+      if (bb + 1e-9 >= Math.min(wl / 2, ws / 2)) capN++;
+    })();
+    var MT = capN ? (30 + 12 * (capN - 1) + 38) : 46;
+    VB_H += Math.max(0, MT - 66);
     var PW = VB_W - ML - MR, PH = VB_H - MT - MB;
     var WL = L.WL, WS = L.WS, apv = L.apv, b = 2 * apv, b5 = 5 * apv;
     var rot = n(S.bldgRot, 0);
@@ -4453,27 +4771,29 @@ window.BallastDraw = (function () {
     o += defs("p");
     o += txt(ML, 16, S.layout === "duo" ? "ROOF PLAN \u2014 duo-pitch E\u2013W" : "ROOF PLAN", "dt");
     var halfL = WL / 2, halfS = WS / 2;
-    var caps = [];
-    if (b5 + 1e-9 >= halfL && b5 + 1e-9 >= halfS) {
-      caps.push("5 a_pv = " + fx(b5, 1) + " m exceeds both half-spans \u2014 no zone 0");
-    }
-    if (b + 1e-9 >= Math.min(halfL, halfS)) {
-      caps.push("2 a_pv reaches mid-span \u2014 no zone 1");
-    }
-    var arrCap = "";
+    var ZB = zBandLbl();
+    var deepName = (S.codeBasis === "pv2012") ? "zone 0" : "zone 1\u2032";
+    /* Two short lines instead of one long one. The old caption listed every
+       block ("Array A 14x4 · Array A 8x2 · ...") on a single line, which ran off
+       the drawing on any merged array and sat on top of the d_W / d_E strings. */
+    var line1 = "", line2 = [];
     if (packs.length > 1) {
-      var nNamed = (S.arrays && S.arrays.length) ? S.arrays.length : packs.length;
-      arrCap = nNamed === 1
-        ? ("1 array \u00b7 " + packs.length + " blocks")
-        : (nNamed + " arrays");
-      for (var ap = 0; ap < packs.length; ap++) {
-        var host = S.arrays && S.arrays[packs[ap].i];
-        var nm = (host && host.name) || ("Array " + String.fromCharCode(65 + packs[ap].i));
-        arrCap += " \u00b7 " + nm + " " + packs[ap].L.nCols + "\u00d7" + packs[ap].L.nRows;
-      }
-      caps.unshift(arrCap);
+      var nNamed = {}, units = 0;
+      packs.forEach(function (pk) {
+        nNamed[pk.i] = 1;
+        units += (pk.L && pk.L.nUnits) || 0;
+      });
+      var nArr = Object.keys(nNamed).length;
+      line1 = nArr + " array" + (nArr === 1 ? "" : "s") + "  \u00b7  " + packs.length +
+        " block" + (packs.length === 1 ? "" : "s") + "  \u00b7  " + units + " units";
     }
-    if (caps.length) o += txt(ML, 28, caps.join("  \u00b7  "), "dl");
+    if (b5 + 1e-9 >= halfL && b5 + 1e-9 >= halfS)
+      line2.push("5" + ZB + " = " + fx(b5, 1) + " m exceeds both half-spans, so no " + deepName);
+    if (b + 1e-9 >= Math.min(halfL, halfS))
+      line2.push("2" + ZB + " = " + fx(b, 1) + " m reaches mid-span, so no zone 1");
+    var capY = 30;
+    if (line1) { o += txt(ML, capY, line1, "dl"); capY += 12; }
+    line2.forEach(function (t) { o += txt(ML, capY, t, "dl"); capY += 12; });
 
     if (rotated) {
       o += '<g id="bldg" transform="rotate(' + fx(rot, 3) + ', ' + fx(rcx, 3) + ', ' + fx(rcy, 3) + ')">';
@@ -4603,10 +4923,14 @@ window.BallastDraw = (function () {
             '" data-w="' + fx(p.dUO.W, 3) +
             '" data-c="' + (p.i + 1) + '" data-r="' + (p.j + 1) +
             '" data-roof="' + (p.roof || "lower") + '" data-db="' +
-            (p.distBlock == null ? "" : fx(p.distBlock, 3)) + '"' +
+            /* Close the attribute once. A second quote here produced data-db=""" x=,
+               which the HTML parser tolerated on screen but the XML parser used to
+               rasterise report figures rejected outright, so the roof plan was
+               silently missing from every report from v57 to v83. */
+            (p.distBlock == null ? "" : fx(p.distBlock, 3)) +
             '" x="' + fx(px, 2) + '" y="' + fx(py, 2) +
             '" width="' + fx(pw, 2) + '" height="' + fx(ph, 2) + '">' +
-            '<title>' + nm + '  ·  unit ' + (p.k + 1) + '  ·  zone ' + p.zone +
+            '<title>' + xe(nm) + '  ·  unit ' + (p.k + 1) + '  ·  zone ' + p.zone +
             (p.roof === "upper" ? '  ·  upper block' : '') +
             (p.inHalo ? '  ·  in the obstruction halo (Zone 3 forced)' : '') +
             '  ·  ' + fx(p.w, 2) + ' \u00d7 ' + fx(p.h, 2) + ' m  ·  click to design</title></rect>';
@@ -4705,15 +5029,26 @@ window.BallastDraw = (function () {
     /* North arrow. northRot is measured clockwise from up, so the array and
        building rotations can be left alone while true north is set to match
        the site. The label counter-rotates so it always reads upright. */
-    var nx = 34, ny = 40, nRot = n(S.northRot, 0);
+    var nx = 34, ny = 32, nRot = n(S.northRot, 0);
     o += '<g transform="rotate(' + fx(nRot, 2) + ' ' + nx + ' ' + ny + ')">' +
       '<line class="wind" marker-end="url(#ahp)" x1="' + nx + '" y1="' + (ny + 22) + '" x2="' + nx +
       '" y2="' + ny + '"/></g>';
     var lr = 26, la = (nRot - 90) * Math.PI / 180;
     o += txt(nx + lr * Math.cos(la), ny + lr * Math.sin(la) + 4, "N", "dt", "middle");
     if (Math.abs(nRot) > 0.05)
-      o += txt(nx, ny + 40, "N " + fx(nRot, 1) + "\u00b0", "dl", "middle");
+      /* When north points into the lower half the N label sits below the arrow,
+         so the degree caption drops beneath it instead of landing on it. */
+      o += txt(nx, ny + (Math.sin(la) > 0.3 ? 44 : 36), "N " + fx(nRot, 1) + "\u00b0", "dl", "middle");
 
+    /* Selected roof has no arrays on it. The roof, its zones and its setback are
+       already drawn above; say so rather than leaving a blank rectangle, and do
+       not borrow another roof's layout to fill it. */
+    if (noArrays) {
+      o += txt((X(0) + X(WL)) / 2, (Y(0) + Y(WS)) / 2,
+        "no arrays on this roof yet", "dt", "middle");
+      o += "</svg>";
+      return o;
+    }
     var countsAll = { 0: 0, 1: 0, 2: 0, 3: 0 }, ci, cc;
     for (ci = 0; ci < packs.length; ci++) {
       cc = packs[ci].L.counts;
@@ -4728,7 +5063,7 @@ window.BallastDraw = (function () {
   }
 
   return {
-    section: section, sectionStepped: sectionStepped,
+    section: section, sectionStepped: sectionStepped, sitePlan: sitePlan, zoneMap: zoneMap,
     plan: plan, layoutArray: layoutArray, layoutAll: layoutAll,
     duoRidgeOf: duoRidgeOf, duoInnerOf: duoInnerOf
   };
@@ -5579,6 +5914,18 @@ aeffOut:
     asceV: 45, asceUnits: "ms", asceExposure: "C", asceKzt: 1.0, asceKd: 0.85,
     asceKzAuto: true, qOverride: 0.6,
     h: 10.5, wLong: 84, wShort: 48, bldgRot: 0, arrayRot: 0, northRot: 0, theta: 1.5, hpt: 0.75,
+    /* Roof set. roofs[0] is the roof the calculation is running on; the rest are
+       other buildings or detached roof areas on the same site, each with its own
+       height, plan, parapet and setback. roofI selects which one is live.
+
+       One roof feeds the engine at a time, deliberately. The engine and every
+       downstream check were written around a single roof, and the stepped-roof
+       work turned up four separate single-plane assumptions in as many passes.
+       Rather than generalise all of that at once, selecting a roof copies its
+       geometry into the existing fields, so the whole calculation path stays on
+       ground that is already tested. The combined schedule and report come next,
+       by sweeping each roof in turn. */
+    roofs: [], roofI: 0, siteW: 200, siteD: 140,
     layout: "mono",
     duoRidge: 0.12,
     omega: 10, lp: 1.134, h1: 0.12, h2: 0.317, setback: 3.0, airGapConfirmed: true,
@@ -5622,6 +5969,54 @@ aeffOut:
   var cutUndo = [];
   var LAST = null;
   var STORE = "ballast.v4.session";
+
+  /* ---- roof set -----------------------------------------------------------
+     A job saved before v77 has no roofs[], so one is built from the geometry it
+     already carries. Nothing is lost and nothing moves: the migrated roof is
+     exactly the building that was there. */
+  function roofFromCurrent(name) {
+    return {
+      id: "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      name: name || "Roof A",
+      WL: pnum(S.wLong, 84), WS: pnum(S.wShort, 48),
+      h: pnum(S.h, 10.5), hpt: pnum(S.hpt, 0.75),
+      setback: pnum(S.setback, 3), theta: pnum(S.theta, 1.5),
+      rot: pnum(S.bldgRot, 0),
+      x: 10, y: 10
+    };
+  }
+  function ensureRoofs() {
+    if (!Array.isArray(S.roofs)) S.roofs = [];
+    if (!S.roofs.length) S.roofs = [roofFromCurrent("Roof A")];
+    S.roofs.forEach(function (rf, ix) {
+      if (!rf.id) rf.id = "r" + ix + Date.now().toString(36);
+      if (!rf.name) rf.name = "Roof " + String.fromCharCode(65 + ix);
+      ["WL", "WS", "h", "hpt", "setback", "theta", "rot", "x", "y"].forEach(function (k) {
+        rf[k] = pnum(rf[k], 0);
+      });
+      if (rf.WL <= 0) rf.WL = 10;
+      if (rf.WS <= 0) rf.WS = 10;
+    });
+    var n = Math.round(pnum(S.roofI, 0));
+    S.roofI = (n >= 0 && n < S.roofs.length) ? n : 0;
+  }
+  /* Push the selected roof into the fields the engine already reads. */
+  function applyRoofToS() {
+    ensureRoofs();
+    var rf = S.roofs[S.roofI];
+    S.wLong = rf.WL; S.wShort = rf.WS; S.h = rf.h;
+    S.hpt = rf.hpt; S.setback = rf.setback; S.theta = rf.theta;
+    S.bldgRot = rf.rot;
+  }
+  /* And take edits made in the Building panel back onto the roof record. */
+  function syncRoofFromS() {
+    ensureRoofs();
+    var rf = S.roofs[S.roofI];
+    rf.WL = pnum(S.wLong, rf.WL); rf.WS = pnum(S.wShort, rf.WS);
+    rf.h = pnum(S.h, rf.h); rf.hpt = pnum(S.hpt, rf.hpt);
+    rf.setback = pnum(S.setback, rf.setback); rf.theta = pnum(S.theta, rf.theta);
+    rf.rot = pnum(S.bldgRot, rf.rot);
+  }
 
   /* ---- project library ---------------------------------------------------
      The autosave slot above keeps exactly one job so a refresh does not lose
@@ -6244,7 +6639,8 @@ aeffOut:
         (stepped ? (up ? "upper block \u00b7 " : "lower roof \u00b7 ") : "") +
         "col " + (r.i + 1) + " row " + (r.j + 1) + " \u00b7 " + f0(r.kg) + " kg \u00b7 E " +
         f(r.E, 2) + (r.inHalo ? " \u00b7 in the obstruction halo" : "") +
-        (r.exposed ? " \u00b7 exposed " + r.exposed : " \u00b7 shielded") + "</title></rect>";
+        (r.exposed ? " \u00b7 exposed " + String(r.exposed).replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;") : " \u00b7 shielded") + "</title></rect>";
     });
 
     /* Colour key: a real gradient bar, so "varies" in the middle is legible. */
@@ -6292,6 +6688,81 @@ aeffOut:
     return o;
   }
 
+  /* ---- whole-site sweep ----------------------------------------------------
+     sweepAll() sweeps the roof that is selected. For a site with several roofs
+     the schedule has to cover all of them, so this selects each roof in turn,
+     sweeps it, and puts the state back exactly as it found it.
+
+     It is done by moving the real selection rather than by computing on a copy,
+     because the sweep reads the live layout through BallastDraw. The saved and
+     restored keys are the ones applyRoofToS writes, plus the two selections. */
+  function sweepSite() {
+    ensureRoofs();
+    if (S.roofs.length < 2) {
+      var one = sweepAll();
+      if (one) { one.roofSet = null; }
+      return one;
+    }
+    var keep = {
+      roofI: S.roofI, arrayI: S.arrayI,
+      wLong: S.wLong, wShort: S.wShort, h: S.h, hpt: S.hpt,
+      setback: S.setback, theta: S.theta, bldgRot: S.bldgRot
+    };
+    var perRoof = [], all = [], failed = [];
+    try {
+      S.roofs.forEach(function (rf, ix) {
+        S.roofI = ix;
+        applyRoofToS();
+        ensureArrays();
+        var rid = rf.id, first = -1;
+        S.arrays.forEach(function (a, k) {
+          if (first < 0 && (!a.roofId || a.roofId === rid)) first = k;
+        });
+        if (first < 0) { failed.push(rf.name + " (no arrays)"); return; }
+        S.arrayI = first;
+        applyActiveToS();
+        read();
+        var sc = sweepAll();
+        if (!sc || !sc.recs || !sc.recs.length) { failed.push(rf.name); return; }
+        sc.recs.forEach(function (rec) { rec.roofId = rid; rec.roofName = rf.name; });
+        perRoof.push({
+          id: rid, name: rf.name, n: sc.n, recs: sc.recs, tiers: sc.tiers,
+          rawTotal: sc.rawTotal, schedTotal: sc.schedTotal, worst: sc.worst,
+          h: rf.h, WL: rf.WL, WS: rf.WS
+        });
+        sc.recs.forEach(function (rec) { all.push(rec); });
+      });
+    } finally {
+      Object.keys(keep).forEach(function (k) { S[k] = keep[k]; });
+      applyRoofToS();
+      ensureArrays();
+      applyActiveToS();
+      read();
+    }
+    if (!all.length) return null;
+
+    var step = 25, map = {};
+    all.forEach(function (rec) {
+      if (!isFinite(rec.kg)) return;
+      var k = Math.ceil(rec.kg / step) * step;
+      if (!map[k]) map[k] = { kg: k, n: 0, maxE: 0, zones: {}, exposed: {} };
+      map[k].n++; map[k].maxE = Math.max(map[k].maxE, rec.E);
+      map[k].zones[rec.zone] = 1; map[k].exposed[rec.exposed || "shielded"] = 1;
+    });
+    var tiers = Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (a, b) { return b.kg - a.kg; });
+    var worst = all.reduce(function (w, rec) {
+      return (isFinite(rec.kg) && (!w || rec.kg > w.kg)) ? rec : w; }, null);
+    return {
+      recs: all, tiers: tiers, worst: worst, n: all.length,
+      rawTotal: all.reduce(function (a, rec) { return a + (isFinite(rec.kg) ? rec.kg : 0); }, 0),
+      schedTotal: tiers.reduce(function (a, t) { return a + t.kg * t.n; }, 0),
+      uniform: worst ? worst.kg * all.length : 0,
+      byRoof: null, roofSet: perRoof, roofFailed: failed,
+      anyInvalid: false, at: new Date()
+    };
+  }
+
   function renderSchedule() {
     var host = el("schedOut"); if (!host) return;
     if (!SCHED) {
@@ -6317,7 +6788,24 @@ aeffOut:
     /* Stepped roof: the two planes are procured, delivered and installed
        separately, so the schedule is reported per roof as well as in total. */
     var perRoof = "";
-    if (sc.byRoof) {
+    if (sc.roofSet && sc.roofSet.length > 1) {
+      perRoof = '<div class="zlist"><span class="eyebrow">Schedule by roof</span><ol>' +
+        sc.roofSet.map(function (b) {
+          var ks = b.recs.map(function (x) { return x.kg; }).filter(isFinite);
+          return '<li><span class="zn">' + b.name + '</span><b>' +
+            f(b.schedTotal / 1000, 2) + ' t</b><s>' + b.n + ' point' + (b.n === 1 ? "" : "s") +
+            '  \u00b7  ' + f(b.WL, 0) + '\u00d7' + f(b.WS, 0) + ' m, h ' + f(b.h, 1) + ' m' +
+            '  \u00b7  worst ' + (ks.length ? f0(Math.max.apply(null, ks)) + ' kg' : '\u2014') +
+            '</s></li>';
+        }).join("") +
+        '</ol><p class="note" style="padding:.4rem 0 0"><b>Site total ' +
+        f(sc.schedTotal / 1000, 2) + ' t over ' + sc.n + ' points.</b> Each roof is priced on its ' +
+        'own height, plan, parapet and setback. Roofs are separate structures, so nothing is ' +
+        'shared between them and each one\u2019s sliding check stands alone.' +
+        ((sc.roofFailed && sc.roofFailed.length)
+          ? ' Not swept: ' + sc.roofFailed.join(", ") + '.' : '') +
+        '</p></div>';
+    } else if (sc.byRoof) {
       perRoof = '<div class="zlist"><span class="eyebrow">Schedule by roof plane</span><ol>' +
         sc.byRoof.map(function (b) {
           return '<li><span class="zn">' + b.label + '</span><b>' +
@@ -6365,12 +6853,18 @@ aeffOut:
         "neighbouring block rather than being exposed." : "") + '</p>';
 
     var tbl = fetchNote + '<div class="tw"><table><thead><tr><th>Tier</th><th>Units</th><th>Sub-total t</th>' +
-      '<th>max E</th><th>exposure</th><th>kg/m²</th><th>depth over the bay</th></tr></thead>' +
+      '<th title="The highest array edge factor among the units grouped into this tier. 1.00 means every unit in it is sheltered; above that, at least one sits on an exposed array edge.">max γ_E</th><th>exposure</th><th>kg/m²</th><th>depth over the bay</th></tr></thead>' +
       "<tbody>" + rows + "</tbody></table></div>" +
       '<p class="note">Bay area per unit = ' + f(B.bay, 2) + ' m\u00b2 (footprint ' +
       f(B.foot, 2) + ' m\u00b2 plus the inter-row gap, at ' + f0(B.cover * 100) +
       ' % tray coverage). Depth is at ' + f0(B.rho) + ' kg/m\u00b3 against ' +
-      f(B.clearLo * 1000, 0) + ' mm clear under the low edge.</p>';
+      f(B.clearLo * 1000, 0) + ' mm clear under the low edge.</p>' +
+      '<p class="note"><b>max \u03b3_E</b> is the highest array edge factor among the units in ' +
+      'that tier, not an input. Tiers are grouped by mass alone, so a tier can hold sheltered ' +
+      'and exposed units together; this column says whether the tier owes its mass to edge ' +
+      'exposure. 1.00 means every unit in it is sheltered. Above 1.00 means at least one unit ' +
+      'sits on an exposed array edge \u2014 under PV2-2017 that is capped at 1.50, and the ' +
+      'exposure column beside it names which side.</p>';
 
     host.innerHTML = '<div class="sched-grid"><div>' + kpi + perRoof + warn + tbl + '</div><div>' +
       heatMap(sc) +
@@ -6444,7 +6938,7 @@ aeffOut:
         f0(SCHED.worst.kg)+" kg \u00b7 uniform "+f(SCHED.uniform/1000,1)+" t \u00b7 tiered "+
         f(SCHED.schedTotal/1000,1)+" t</td></tr>" +
         SCHED.tiers.map(function(t){return "<tr><th>&nbsp;&nbsp;tier "+f0(t.kg)+" kg</th><td>"+
-          t.n+" units \u00b7 "+f(t.kg*t.n/1000,2)+" t \u00b7 max E "+f(t.maxE,2)+"</td></tr>";}).join("")
+          t.n+" units \u00b7 "+f(t.kg*t.n/1000,2)+" t \u00b7 max \u03b3_E "+f(t.maxE,2)+"</td></tr>";}).join("")
         : "") +
       "<tr><th>Combination</th><td>" + r.comboLabel + "</td></tr>" +
       "<tr><th>ρ</th><td>" + f(r.wind.rho, 3) + " kg/m³" +
@@ -6505,7 +6999,8 @@ aeffOut:
       : "clockwise from north-facing (0\u00b0 = north-facing default)";
   }
   function zoneName(z) {
-    if (z === 0) return "0 (deep interior)";
+    /* PV2-2017 / ASCE 7-16 calls the deep-interior zone 1-prime, not 0. */
+    if (z === 0) return (S && S.codeBasis === "pv2012") ? "0 (deep interior)" : "1\u2032 (deep interior)";
     if (z === 1) return "1 (interior)";
     if (z === 2) return "2 (edge)";
     if (z === 3) return "3 (corner)";
@@ -6667,8 +7162,9 @@ aeffOut:
     });
   }
 
-  function buildEngineeringReport(r) {
+  function buildEngineeringReport(r, mode, imgs) {
     var K = DocxKit;
+    var SHORT = (mode === "short");
     var NAVY = "0F304A", STEEL = "156082", BAND = "E8EDF2", PAPER = "F7FAFC";
     var PASS = "2F5D32", FAIL = "B42318", MUTED = "5A6B7B", INK = "1A2A32";
     var dateStr = jhbDate();
@@ -6715,12 +7211,195 @@ aeffOut:
     function rad(deg) { return deg * Math.PI / 180; }
 
     var doc = new K.Doc({
-      footer: "Lumax Energy  ·  Rooftop PV ballast  ·  " + proj + "  ·  Rev " + rev,
-      title: "Rooftop PV ballast calculation — " + proj,
+      footer: "Lumax Energy  ·  Rooftop PV ballast" + (SHORT ? " — summary" : "") +
+        "  ·  " + (client ? client + "  ·  " : "") + proj + "  ·  Rev " + rev,
+      title: (SHORT ? "Rooftop PV ballast — summary of requirements — "
+                    : "Rooftop PV ballast calculation — ") + proj +
+        (client ? " — " + client : ""),
       author: S.byWhom || "Lumax Energy"
     });
 
     var secN = 0, subN = 0;
+    if (SHORT) return shortReport();
+
+    /* ---- summary report ----------------------------------------------------
+       What the client, the installer and the building owner need: the design
+       assumptions, the ballast required, where it goes, and the conditions it
+       rests on. It deliberately carries no method — no coefficients, factors,
+       normalised areas, derivations or literature adjustments — so it can be
+       issued outside the checking chain without handing over how the result
+       was reached. The full engineering report remains the design record.
+
+       It reuses this builder's own helpers, so the two documents cannot drift
+       apart in styling, and it reads the same SCHED the engineering report
+       reads, so the two cannot disagree on a number. */
+    function shortReport() {
+      var SX = (SCHED && SCHED.n) ? SCHED : null;
+      var terrName = { A: "A — sea or lake shore", B: "B — open country",
+                       C: "C — suburban", D: "D — city centre" };
+      function pic(img, wmm, hmm, capt) {
+        if (!img) return;
+        var pp = doc.picture(img, wmm, hmm);
+        if (!pp) return;
+        doc.add(K.text(capt, { size: 9, italic: true, spaceAfter: 2, color: MUTED, keepNext: true }));
+        doc.add(K.para(pp, { align: "center", spaceAfter: 10 }));
+      }
+
+      doc.add(K.text("ROOFTOP PV BALLAST", { size: 10, bold: true, color: STEEL, spaceAfter: 2 }));
+      doc.add(K.text("Summary of requirements", { size: 22, bold: true, color: NAVY, spaceAfter: 4 }));
+      doc.add(K.text((client ? client + "  ·  " : "") + proj,
+        { size: 12, color: INK, spaceAfter: 12 }));
+      info4([
+        ["Client", client || "—", "Project", proj],
+        ["Date", dateStr, "Revision", dash(S.revision)],
+        ["Prepared by", dash(S.byWhom), "Checked by", dash(S.checkedBy)],
+        ["Document", "Summary report", "Design record", "Engineering report, held by Lumax Energy"]
+      ]);
+      para("This summary sets out the wind assumptions and the ballast required for the rooftop PV " +
+        "installation described above. It reports the outcome of a detailed engineering " +
+        "calculation prepared by Lumax Energy; the method and supporting checks are recorded in " +
+        "the full engineering report, which is available to the appointed checking engineer on " +
+        "request.");
+
+      if (!issued) {
+        callout("NOT ISSUED. The calculation has " + r.blockers.length + " unresolved check" +
+          (r.blockers.length === 1 ? "" : "s") + " and its result is withheld. No ballast mass in " +
+          "this document may be used until the engineering report is issued.", "fail");
+      }
+
+      /* 1. wind and design assumptions */
+      heading("Design assumptions");
+      subhead("Wind");
+      navyTable(["Item", "Value"], [
+        ["Wind loading standard", S.windBasis === "sans" ? "SANS 10160-3:2019" :
+          (S.windBasis === "asce" ? "ASCE 7-16" : "Velocity pressure entered directly")],
+        ["Basic wind speed, v_b,0", S.windBasis === "sans" ? f(i.vb0, 1) + " m/s" : "—"],
+        ["Terrain category", S.windBasis === "sans" ? (terrName[i.terrain] || dash(i.terrain)) : "—"],
+        ["Design return period", rpLabel()],
+        ["Site altitude", S.windBasis === "sans" ? f0(i.altitude) + " m" : "—"],
+        ["Air density", (w.rho != null) ? f(w.rho, 3) + " kg/m³" : "—"],
+        ["Peak velocity pressure, q_p", f(r.q, 3) + " kPa, at the mean roof height"],
+        ["Load combination", r.comboLabel || "—"],
+        ["Consequence class", String(r.ccClass || "cc2").toUpperCase()]
+      ], [3900, 6180]);
+
+      subhead("Building and roof");
+      navyTable(["Item", "Value"], [
+        ["Mean roof height, h", f(i.h, 2) + " m"],
+        ["Roof plan", f(i.wLong, 1) + " × " + f(i.wShort, 1) + " m"],
+        ["Parapet height", f(i.hpt, 2) + " m"],
+        ["Roof slope", f(i.theta, 1) + "°"],
+        ["Setback, panels to roof edge", f(i.setback, 2) + " m"],
+        ["Roof wind zones", r.c17 ? "SEAOC PV2-2017 / ASCE 7-16" : "SEAOC PV2-2012"]
+      ], [3900, 6180]);
+
+      subhead("PV installation");
+      navyTable(["Item", "Value"], [
+        ["Layout", i.layout === "duo" ? "Duo-pitch, east–west" : "Mono-pitch"],
+        ["Panel tilt", f(i.omega, 1) + "°"],
+        ["Module mass", f(i.moduleKg, 1) + " kg"],
+        ["Ballast points", SX ? String(SX.n) : "—"],
+        ["Friction, racking to roof surface", f(sl.muK, 2) + " (characteristic)" +
+          (String(S.muRef || "").trim() ? "" : " — to be confirmed by test")]
+      ], [3900, 6180]);
+
+      /* 2. ballast requirement */
+      heading("Ballast requirement");
+      if (SX && issued) {
+        var ks = SX.recs.map(function (x) { return x.kg; }).filter(isFinite);
+        resultBox([
+          ["Total ballast, all panels", f(SX.schedTotal / 1000, 2) + " t", true],
+          ["Ballast points", String(SX.n), true],
+          ["Mass per point", f0(Math.min.apply(null, ks)) + " kg to " +
+            f0(Math.max.apply(null, ks)) + " kg"]
+        ]);
+        why("Each ballast point has been sized individually for its position on the roof. Place " +
+          "the mass shown for each tier at the points shown in the placement figure. Do not " +
+          "ballast the whole roof at an average mass.");
+        navyTable(["Tier", "Points", "Mass per point", "Sub-total", "Roof zone"],
+          SX.tiers.map(function (t, ti) {
+            var zs = Object.keys(t.zones).map(function (z) { return zoneName(+z); }).join(", ");
+            return [String(ti + 1), String(t.n), f0(t.kg) + " kg",
+              f(t.kg * t.n / 1000, 2) + " t", zs || "—"];
+          }).concat([["All", String(SX.n), "—", f(SX.schedTotal / 1000, 2) + " t", ""]]),
+          [900, 1100, 1900, 1600, 4580]);
+        if (SX.roofSet && SX.roofSet.length > 1) {
+          subhead("By roof");
+          navyTable(["Roof", "Plan", "Points", "Ballast"],
+            SX.roofSet.map(function (b) {
+              return [b.name, f(b.WL, 1) + " × " + f(b.WS, 1) + " m", String(b.n),
+                f(b.schedTotal / 1000, 2) + " t"];
+            }).concat([["SITE TOTAL", "—", String(SX.n), f(SX.schedTotal / 1000, 2) + " t"]]),
+            [2600, 2800, 1600, 3080]);
+        }
+      } else if (!issued) {
+        para("Withheld — see the notice above.", { bold: true });
+      } else {
+        callout("The ballast schedule could not be produced. Re-export before issue.", "fail");
+      }
+
+      /* figures */
+      var fz = 0;
+      /* The zone map now carries the panels, so a separate layout figure would
+         only repeat it. Two figures keep the summary short. */
+      if (imgs && imgs.zone) { fz++; pic(imgs.zone, 172, 116, "Figure " + fz +
+        "    Roof wind zones and panel layout \u2014 each part of the roof coloured by its wind " +
+        "zone, the zone distances measured from the roof edges, and every panel in place."); }
+      if (imgs && imgs.heat && issued) { fz++; pic(imgs.heat, 176, 130, "Figure " + fz +
+        "    Ballast placement — the mass required at every point, green lightest to red " +
+        "heaviest."); }
+
+      /* 3. roof */
+      heading("Roof capacity");
+      var allow = (S.roofSDL === "" || S.roofSDL == null) ? null : pnum(S.roofSDL, null);
+      if (allow != null && isFinite(allow)) {
+        para("The building engineer's recorded allowance for additional superimposed dead load is " +
+          f(allow, 2) + " kPa" + (String(S.roofSDLRef || "").trim()
+            ? " (" + String(S.roofSDLRef).trim() + ")" : "") + ". The full engineering report " +
+          "checks the ballast against it.");
+      } else {
+        callout("Roof capacity has not been verified. The roof structure must be confirmed by the " +
+          "building's structural engineer as able to carry the ballast shown before installation.",
+          "warn");
+      }
+
+      /* 4. conditions */
+      heading("Conditions");
+      [
+        "The masses apply only to the assumptions listed in Section 1. A change to the layout, " +
+          "tilt, module, roof, parapet, setback or wind assumptions requires the calculation to be " +
+          "repeated.",
+        "Ballast is to be placed at the masses and positions shown, not spread uniformly.",
+        String(S.muRef || "").trim()
+          ? "The friction value is taken from the referenced test: " + String(S.muRef).trim() + "."
+          : "The friction value is a screening value. It is to be confirmed by a slip test of the " +
+            "racking foot on the actual roof surface before installation.",
+        "The installation is to follow the racking manufacturer's instructions, including the " +
+          "air gaps between modules and rows.",
+        "Any unresolved items listed in the engineering report are to be closed before issue for " +
+          "construction."
+      ].forEach(function (t) { bullet(t); });
+      var open = [];
+      if (!issued) open.push("The calculation is not issued — " + r.blockers.length +
+        " check" + (r.blockers.length === 1 ? "" : "s") + " unresolved.");
+      if (S.stepped && !S.steppedAccept) open.push("Stepped roof: the engineer's acceptance is not recorded.");
+      if (S.windBasis === "sans" && S.useReturnPeriod && !String(S.rpJustify || "").trim())
+        open.push("A non-standard return period is used without a recorded acceptance.");
+      if (!S.airGapConfirmed) open.push("The minimum air gaps are not confirmed.");
+      if (allow == null) open.push("Roof capacity is not verified.");
+      if (!String(S.muRef || "").trim()) open.push("Friction is not confirmed by test.");
+      if (!String(S.checkedBy || "").trim()) open.push("The calculation has not been checked.");
+      if (open.length) {
+        subhead("Open items at the date of this summary");
+        open.forEach(function (t) { bullet(t); });
+      }
+
+      doc.add(K.text(" ", { size: 6, spaceAfter: 6 }));
+      para("This summary is not a design calculation and is not to be used to verify the design. " +
+        "The calculation, including its method, assumptions and checks, is the property of " +
+        "Lumax Energy and is recorded in the engineering report.", { italic: true });
+      return { doc: doc, insertAllFigures: function () {} };
+    }
     function heading(t) {
       secN += 1;
       subN = 0;
@@ -7083,7 +7762,7 @@ aeffOut:
       size: 9, bold: true, color: STEEL, spaceBefore: 12, spaceAfter: 3, keepNext: true
     }));
     navyTable(["§", "Section", "Covers"], [
-      ["1", "Summary of results", "Governing ballast mass, mechanism, and mass by roof zone"],
+      ["1", "Summary of results", "Ballast for the whole installation, the zone plan, then the design unit"],
       ["2", "Design basis", "Method, coefficient edition, departures, references, scope"],
       ["3", "Input data", "Building, array, unit, materials, combination — the checker's list"],
       ["4", "Worked calculation", "Every value substituted, from q_p to the required mass"],
@@ -7094,7 +7773,59 @@ aeffOut:
       ["9", "Limitations", "What this calculation does not cover"],
       ["10", "Conclusion", "Statement and signature block"]
     ], [560, 2740, 6780]);
-    para("This calculation sizes the ballast on one design unit of a rooftop PV array so that the unit and the interconnected field remain in equilibrium under the unfavourable wind combination (EQU — loss of static equilibrium). Two mechanisms are checked: uplift of the unit, and sliding of the field. The larger demand governs.");
+    /* ---- 1.1  what the installation needs --------------------------------
+       The headline of a ballast calculation is the ballast the installation
+       needs, not the mass on one unit. The previous summary opened on the design
+       unit and left the whole-roof requirement to Section 5, so the number a
+       contractor orders from sat several pages in. It now leads. */
+    var SX = (SCHED && SCHED.n) ? SCHED : null;
+    /* Section 1 had no heading() call, so its subsections printed as 0.x and
+       every later section was numbered one lower than the contents table said:
+       the text sent the reader to "Section 4" for the worked calculation, which
+       the body printed as Section 3. */
+    heading("Summary of results");
+    subhead("Ballast required for the installation");
+    if (SX) {
+      var sxKgs = SX.recs.map(function (x) { return x.kg; }).filter(isFinite);
+      var sxLo = sxKgs.length ? Math.min.apply(null, sxKgs) : NaN;
+      var sxHi = sxKgs.length ? Math.max.apply(null, sxKgs) : NaN;
+      resultBox([
+        ["Total ballast, all panels", f(SX.schedTotal / 1000, 2) + " t", true],
+        ["Ballast points", String(SX.n), true],
+        ["Mass per point", f0(sxLo) + " kg to " + f0(sxHi) + " kg, in " +
+          SX.tiers.length + " tier" + (SX.tiers.length === 1 ? "" : "s")],
+        ["If every point took the heaviest mass", f(SX.uniform / 1000, 2) + " t  \u2014  tiering saves " +
+          f((SX.uniform - SX.schedTotal) / 1000, 2) + " t"]
+      ]);
+      why("Every ballast point on the roof has been calculated individually at its own position, " +
+        "by the same method as the design unit worked in full in Section 4. The masses differ " +
+        "because each point has its own roof zone, edge exposure and effective wind area. Place " +
+        "the mass shown for each point; do not ballast the whole roof at the design-unit mass.");
+      navyTable(["Tier", "Points", "Mass per point", "Sub-total", "Where"],
+        SX.tiers.map(function (t, ti) {
+          var zs = Object.keys(t.zones).map(function (z) { return zoneName(+z); }).join(", ");
+          return [String(ti + 1), String(t.n), f0(t.kg) + " kg",
+            f(t.kg * t.n / 1000, 2) + " t", zs || "\u2014"];
+        }).concat([["All", String(SX.n), "\u2014", f(SX.schedTotal / 1000, 2) + " t", ""]]),
+        [900, 1100, 1900, 1600, 4580]);
+    } else {
+      callout("The installation schedule could not be produced, so this section carries the " +
+        "design-unit result only. Run \u201cSweep every unit\u201d and re-export before issue.", "fail");
+    }
+    /* Figures 1 and 2 are spliced in here: the zone plan and the placement. */
+    doc._zoneAnchor = doc.body.length;
+
+    /* ---- 1.2  the design unit ------------------------------------------- */
+    subhead("The design unit");
+    para("The masses above are produced by one calculation, repeated at every position. This " +
+      "report sets that calculation out in full for a single design unit, so a checker can verify " +
+      "the method once and trust it everywhere. The design unit is " +
+      ((S.arrays && S.arrays[S.arrayI] && S.arrays[S.arrayI].name) || "the selected array") +
+      ", column " + f0(pnum(S.selCol, 1)) + ", row " + f0(pnum(S.selRow, 1)) + ", in " +
+      zoneName(r.zone) + ". It is sized so that it, and the interconnected field, stay in " +
+      "equilibrium under the unfavourable wind combination (EQU \u2014 loss of static " +
+      "equilibrium). Two mechanisms are checked \u2014 uplift of the unit and sliding of the " +
+      "field \u2014 and the larger governs.");
     resultBox([
       ["Required ballast", issued ? (f0(r.requiredKg) + " kg per design unit") : "not issued", true],
       ["Governing check", issued ? (r.governing || "—") : "not reported", true],
@@ -7111,9 +7842,12 @@ aeffOut:
 
     if (zMat && zMat.length === 4) {
       subhead("Required ballast by roof zone");
-      why("The design unit occupies " + zoneName(r.zone) + ". The other PV2 roof zones on this building take different (GC_rn)nom values, and edge/corner panels also see a larger array-edge factor E. Every panel shall be ballasted to the mass of the zone it occupies. Do not place the design-unit mass uniformly across the roof.");
+      why("The design unit occupies " + zoneName(r.zone) + ". This table re-runs the same unit " +
+        "with only its roof zone changed, to show what each zone is worth. It is a comparison, " +
+        "not the placement \u2014 the tiers above are the placement, because they also carry " +
+        "each point's own edge exposure and effective wind area.");
       navyTable(
-        ["Roof zone", "Occupancy used", "E", "(GC_rn)nom", "Uplift", "Sliding / unit", "Required / panel"],
+        ["Roof zone", "Occupancy used", "\u03b3_E", "(GC_rn)nom", "Uplift", "Sliding / unit", "Required / panel"],
         zMat.map(function (row) {
           var mark = row.zone === r.zone ? "    ← design unit zone" : "";
           return [
@@ -7134,13 +7868,14 @@ aeffOut:
     why("A checker who follows this table in order will have reviewed every number that feeds the governing mass. Each row is worked in full in Section 4.");
     navyTable(["Step", "Determines", "This job"], [
       ["1  Wind", "Peak velocity pressure q_p", f(r.q, 4) + " kPa"],
-      ["2  Geometry", "Roof zone  /  a_pv", zoneName(r.zone) + "  /  " + f(apv, 3) + " m"],
+      ["2  Geometry", "Roof zone  /  " + (r.c17 ? "zone band h" : "a_pv"),
+        zoneName(r.zone) + "  /  " + f(apv, 3) + " m"],
       ["2a Zones", "kg / panel in 0 · 1 · 2 · 3",
         (zMat && zMat.length === 4)
           ? zMat.map(function (row) { return row.valid ? f0(row.requiredKg) : "—"; }).join("  ·  ") + " kg"
           : "—"],
       ["3  Area", "A_n  (normalised wind area)", f(r.An, 2)],
-      ["4  Coefficient", "GC_rn  =  γ_p · E · (GC_rn)nom · reductions", f(r.GCrn, 4)],
+      ["4  Coefficient", "GC_rn  =  γ_p · γ_c · γ_E · (GC_rn)nom · factors", f(r.GCrn, 4)],
       ["5  Pressure", "p  =  q_p · GC_rn", f(r.p, 4) + " kPa"],
       ["6  Forces", "F_v (uplift)  /  F_h (slide)", f(r.Fv, 3) + "  /  " + f(r.Fh, 3) + " kN"],
       ["7  EQU uplift", "Ballast against F_v", r.pinned ? "0 kg (pinned)" : (f0(r.upliftKg) + " kg")],
@@ -7161,10 +7896,12 @@ aeffOut:
       ["q_p", "Peak velocity pressure on the roof", "kPa"],
       ["v_b,0 , v_b , v_p", "Map gust; basic speed; peak speed at height", "m/s"],
       ["c_r , c_o , ρ", "Roughness factor; orography factor; air density", "—  /  kg/m³"],
-      ["a_pv", "Roof dimension that sets the PV2 zone bands", "m"],
+      [r.c17 ? "h, L_b" : "a_pv", r.c17
+        ? "Mean roof height, which sets the 2h / 5h zone bands; normalising length for A_n"
+        : "Roof dimension that sets the PV2-2012 zone bands", "m"],
       ["A_trib , A_eff , A_n", "Tributary area; effective wind area; PV2 normalised area", "m²  /  —"],
-      ["(GC_rn)nom", "Figure 29.9-1 nominal net pressure coefficient", "—"],
-      ["E", "Array edge factor (1.0 interior → up to 2.0 north fetch)", "—"],
+      ["(GC_rn)nom", (r.c17 ? "ASCE 7-16 Figure 29.4-7" : "PV2-2012 Figure 29.9-1") + " nominal net pressure coefficient", "—"],
+      ["γ_E", r.c17 ? "Array edge factor, 1.0 sheltered to 1.5 exposed" : "Array edge factor, 1.0 sheltered to 2.0 on the north edge", "—"],
       ["γ_p , γ_c", "Parapet height factor; chord-length factor", "—"],
       ["f_tunnel , γ_duo , γ_def", "Wind-tunnel, duo-pitch shelter, deflector factors", "—"],
       ["GC_rn , p", "Design net coefficient; design pressure p = q_p · GC_rn", "—  /  kPa"],
@@ -7483,7 +8220,9 @@ aeffOut:
     ]);
 
     subhead("Figures");
-    para("Figure 1 is a section through the design unit. Figure 2 is the roof plan with ballast units and the design-unit centre. Confirm distances on Figure 2 against Section 3.2 before checking the zone.");
+    para("The zone plan and the ballast placement are Figures 1 and 2 in Section 1. The sections " +
+      "below show the design unit in elevation. Confirm the edge distances on Figure 1 against " +
+      "Section 3.2 before checking the zone.");
     doc._figAnchor = doc.body.length;
 
     /* 4. Worked calculation -------------------------------------------- */
@@ -7639,7 +8378,12 @@ aeffOut:
     }
 
     subhead(r.c17 ? "Roof zone band, L_b and zone" : "Roof dimension a_pv and zone", r.c17 ? "ASCE 7-16 Fig. 29.4-7 · PV2-2017 Fig. 1" : "PV2 §3.2.3.2 · Note 6");
-    why("a_pv sets the width of the edge and corner bands. The design unit’s distances to the four building edges then pick zone 0 (deep interior), 1, 2 (edge) or 3 (corner).");
+    why(r.c17
+      ? "The mean roof height h sets the zone bands at 2h and 5h from every roof edge. The " +
+        "design unit\u2019s distances to the four roof edges then place it in zone 1\u2032 (deep " +
+        "interior), 1 (interior), 2 (edge) or 3 (corner)."
+      : "a_pv sets the width of the edge and corner bands. The design unit\u2019s distances to " +
+        "the four building edges then pick zone 0 (deep interior), 1, 2 (edge) or 3 (corner).");
     var termSqrt = Math.sqrt(i.h * i.wLong);
     var termHalf = 0.5 * termSqrt;
     formula("a_pv = min[ h ,  0.5 √(h · W_L) ]");
@@ -7711,7 +8455,7 @@ aeffOut:
         "swept schedule for per-position masses. Columns cover only the range the coefficient " +
         "basis in force permits.");
       navyTable(
-        ["Roof zone"].concat(zGrid.Es.map(function (e) { return "E = " + f(e, 2); })),
+        ["Roof zone"].concat(zGrid.Es.map(function (e) { return "\u03b3_E = " + f(e, 2); })),
         zGrid.rows.map(function (row) {
           return [row.name].concat(row.cells.map(function (c) {
             return c.valid ? (f0(c.kg) + " kg") : "—";
@@ -8178,7 +8922,7 @@ aeffOut:
       : "Roof capacity is not verified in this calculation. The imposed load is stated for the building structural engineer.");
 
     if (gpGap !== null || gr !== null || S.airGapConfirmed) {
-      subhead("Air gap", "Figure 29.9-1 Note 2");
+      subhead("Air gap", r.c17 ? "ASCE 7-16 \u00a729.4.3 / PV2-2017" : "PV2-2012 Figure 29.9-1 Note 2");
       navyTable(["Dimension", "Measured", "Required", "Result"], [
         ["Perimeter gap", (gpGap !== null ? f(gpGap, 0) + " mm" : "not measured"), "≥ 12 mm",
           gpGap !== null ? (gpGap >= 12 ? "satisfies" : "does not satisfy") : "—"],
@@ -8215,7 +8959,7 @@ aeffOut:
         ["Tiered schedule", f(SCHED.schedTotal / 1000, 1) + " t"]
       ].concat(SCHED.tiers.map(function (t) {
         return ["Tier " + f0(t.kg) + " kg", t.n + " units  ·  " + f(t.kg * t.n / 1000, 2) +
-          " t  ·  max E " + f(t.maxE, 2)];
+          " t  \u00b7  max \u03b3_E " + f(t.maxE, 2)];
       })), [3600, 6480]);
       var zCount = [0, 1, 2, 3].map(function (z) {
         return { z: z, n: 0, min: Infinity, max: 0 };
@@ -8227,6 +8971,28 @@ aeffOut:
         zCount[z].min = Math.min(zCount[z].min, rec.kg);
         zCount[z].max = Math.max(zCount[z].max, rec.kg);
       });
+      if (SCHED.roofSet && SCHED.roofSet.length > 1) {
+        why("This job covers more than one roof. Each is a separate structure with its own " +
+          "height, plan, parapet and setback, so each is calculated on its own and nothing is " +
+          "shared between them \u2014 in particular, the whole-array sliding check on one roof " +
+          "cannot be restrained by ballast on another.");
+        navyTable(["Roof", "Plan", "h", "Points", "Heaviest", "Tiered total"],
+          SCHED.roofSet.map(function (b) {
+            var ks = b.recs.map(function (x) { return x.kg; }).filter(isFinite);
+            return [b.name,
+              f(b.WL, 1) + " \u00d7 " + f(b.WS, 1) + " m",
+              f(b.h, 2) + " m",
+              String(b.n),
+              ks.length ? f0(Math.max.apply(null, ks)) + " kg" : "\u2014",
+              f(b.schedTotal / 1000, 2) + " t"];
+          }).concat([["SITE TOTAL", "\u2014", "\u2014", String(SCHED.n), "\u2014",
+                      f(SCHED.schedTotal / 1000, 2) + " t"]]),
+          [2200, 2000, 1100, 1100, 1500, 1460]);
+        if (SCHED.roofFailed && SCHED.roofFailed.length)
+          callout("Not included in the sweep: " + SCHED.roofFailed.join(", ") +
+            ". A roof with no arrays on it contributes nothing and is listed here so the " +
+            "omission is visible rather than silent.", "warn");
+      }
       if (SCHED.byRoof) {
         why("The two roof planes are procured and installed separately, so the schedule is " +
           "given per plane as well as in total. Each plane is priced on its own roof height, " +
@@ -8349,7 +9115,10 @@ aeffOut:
     }
 
     if ((r.blockers && r.blockers.length) || (r.warnings && r.warnings.length) || (r.notes && r.notes.length)) {
-      heading("Advisories");
+      /* A subsection of Open items, not a numbered section of its own: it only
+         prints when there are advisories, and the contents table cannot know that
+         in advance, so as a section it shifted Limitations and Conclusion by one. */
+      subhead("Advisories");
       function listBlock(title, arr) {
         if (!arr || !arr.length) return;
         para(title, { bold: true, color: NAVY, spaceAfter: 2 });
@@ -8486,94 +9255,104 @@ aeffOut:
       para("Wind basis is not SANS 10160-3. The Table 3 profile check is not applicable.");
     }
 
-    function insertBallastFigure(heatImg) {
-      var at = doc._ballastAnchor;
-      if (typeof at !== "number") return;
-      var bits = [];
-      if (heatImg) {
-        var hp = doc.picture(heatImg, 176, 130);
-        if (hp) {
-          bits.push(K.text("Figure " + (S.stepped ? 4 : 3) + "    Ballast placement. Every point shaded by the mass it " +
-            "requires \u2014 green lightest, red heaviest, scale spanning the whole job." +
-            (SCHED && SCHED.byRoof
-              ? " Heavy outline marks points on the upper block; the dashed rectangle is the " +
-                "block footprint."
-              : ""),
-            { size: 9, italic: true, spaceAfter: 2, color: MUTED }));
-          bits.push(K.para(hp, { align: "center", spaceAfter: 4 }));
-          bits.push(K.text("Colour carries the pattern; the tiers and the extremes tables below " +
-            "carry the values. The ramp does not survive greyscale printing \u2014 read the " +
-            "numbers, not the shade, when this is printed in mono.",
-            { size: 8.5, italic: true, spaceAfter: 10, color: MUTED }));
-        }
+    /* ---- figures, numbered in the order they appear -----------------------
+       Section 1 carries the two figures that answer "how much ballast, where":
+       the zone plan and the placement. Section 3 carries the two that describe
+       the design unit in elevation. The schedule points back to Figure 2 rather
+       than repeating it.
+
+       Splices run from the LAST anchor to the first, so inserting at a later
+       position never shifts an earlier one; figure numbers are assigned first,
+       in reading order, so they still count up down the page. */
+    function insertAllFigures(planImg, sectImg, heatImg, stepImg, zoneImg) {
+      var MUTEDc = MUTED;
+      /* keepNext: a caption must never be stranded at the foot of a page with its
+         figure on the next one. */
+      function cap(t) { return K.text(t, { size: 9, italic: true, spaceAfter: 2, color: MUTEDc,
+        keepNext: true }); }
+      function note(t) { return K.text(t, { size: 8.5, italic: true, spaceAfter: 10, color: MUTEDc }); }
+      var fig = 0, blocks = { zone: [], unit: [], sched: [] };
+
+      /* Section 1 — Figure: the roof itself, coloured by wind zone */
+      var zm = zoneImg ? doc.picture(zoneImg, 170, 112) : null;
+      if (zm) {
+        fig++;
+        blocks.zone.push(cap("Figure " + fig + "    Roof wind zones and panel layout \u2014 the roof " +
+          "coloured by the " + (r.c17 ? "PV2-2017 / ASCE 7-16" : "PV2-2012") + " zone each part of " +
+          "it falls in, the zone-band distances dimensioned from the roof edges, and every panel " +
+          "drawn in place. The design unit has the heavy outline; dashed lines are the zone bands " +
+          "and the dotted line is the setback."));
+        blocks.zone.push(K.para(zm, { align: "center", spaceAfter: 10 }));
       }
-      if (!bits.length) {
-        bits.push(K.text("Figure " + (S.stepped ? 4 : 3) +
-          " (ballast placement) could not be produced in this browser. " +
-          "The tiered schedule below is complete without it.",
-          { size: 9, italic: true, color: MUTED, spaceAfter: 8 }));
+      /* Section 1 — Figure: the panels, coloured by the zone they sit in */
+      var zp = planImg ? doc.picture(planImg, 176, 118) : null;
+      if (zp) {
+        fig++;
+        var zoneFig = fig;
+        blocks.zone.push(cap("Figure " + fig + "    Panel layout \u2014 every ballast point, each " +
+          "panel coloured by the roof zone it sits in; the design unit is outlined in white."));
+        blocks.zone.push(K.para(zp, { align: "center", spaceAfter: 4 }));
+        blocks.zone.push(note("Zone bands are " + (r.c17 ? "2h and 5h off the mean roof height" :
+          "2a_pv and 5a_pv") + ". Where the band is wider than half the roof, every panel falls " +
+          "in the corner zone and the plan reads as a single colour \u2014 that is the correct " +
+          "result for a small plan on a tall building, not a drawing fault."));
       }
-      doc.body.splice.apply(doc.body, [at, 0].concat(bits));
-      /* Anything spliced later must not land inside this block. */
-      if (typeof doc._figAnchor === "number" && doc._figAnchor > at)
-        doc._figAnchor += bits.length;
+      /* Section 1 — Figure: ballast placement */
+      var hp = heatImg ? doc.picture(heatImg, 176, 130) : null;
+      var heatFig = null;
+      if (hp) {
+        fig++;
+        heatFig = fig;
+        blocks.zone.push(cap("Figure " + fig + "    Ballast placement \u2014 the mass required at " +
+          "every point, green lightest to red heaviest, one scale for the whole job." +
+          (SCHED && SCHED.byRoof ? " Heavy outline marks points on the upper block." : "")));
+        blocks.zone.push(K.para(hp, { align: "center", spaceAfter: 4 }));
+        blocks.zone.push(note("Colour carries the pattern; the tier table above carries the values. " +
+          "The ramp does not survive greyscale printing \u2014 read the numbers when this is " +
+          "printed in mono."));
+      }
+      if (!blocks.zone.length)
+        blocks.zone.push(note("The zone plan and placement figures could not be produced in this " +
+          "browser. The tier table above is complete without them."));
+
+      /* Section 3 — the design unit in elevation */
+      var st = stepImg ? doc.picture(stepImg, 176, 100) : null;
+      if (st) {
+        fig++;
+        blocks.unit.push(cap("Figure " + fig + "    Building section through the upper block. " +
+          "Both roof planes, both parapets, the arrays on each, and the obstruction halo."));
+        blocks.unit.push(K.para(st, { align: "center", spaceAfter: 10 }));
+      }
+      var sp = sectImg ? doc.picture(sectImg, 176, 90) : null;
+      if (sp) {
+        fig++;
+        blocks.unit.push(cap("Figure " + fig + "    Detail section through the design unit" +
+          (r.roofCtx && r.roofCtx.roof === "upper" ? ", on the upper block."
+            : (r.stepped ? ", on the lower roof." : ".")) +
+          "  Tilt, clearances h\u2081 and h\u2082, chord and setback as used in Section 4."));
+        blocks.unit.push(K.para(sp, { align: "center", spaceAfter: 10 }));
+      }
+
+      /* Section 5 — point back rather than repeat */
+      if (heatFig)
+        blocks.sched.push(note("The placement of these tiers is shown in Figure " + heatFig + "."));
+
+      function splice(at, bits) {
+        if (typeof at !== "number" || !bits.length) return;
+        doc.body.splice.apply(doc.body, [at, 0].concat(bits));
+      }
+      splice(doc._ballastAnchor, blocks.sched);   /* latest in the document first */
+      splice(doc._figAnchor, blocks.unit);
+      splice(doc._zoneAnchor, blocks.zone);
     }
 
-    function insertFigures(planImg, sectImg, stepImg) {
-      var bits = [];
-      var any = false;
-      var fig = 0;
-      /* The stepped elevation goes first: it is the only drawing that shows the
-         two roof planes and their parapets together, so it sets the context the
-         other two are read against. Figure numbers follow whatever is present. */
-      if (stepImg) {
-        var st = doc.picture(stepImg, 176, 100);
-        if (st) {
-          fig++;
-          bits.push(K.text("Figure " + fig + "    Building section through the upper block. " +
-            "Both roof planes, both parapets, the arrays on each, and the obstruction halo on " +
-            "the lower roof.",
-            { size: 9, italic: true, spaceAfter: 2, color: MUTED }));
-          bits.push(K.para(st, { align: "center", spaceAfter: 10 }));
-          any = true;
-        }
-      }
-      if (sectImg) {
-        var sp = doc.picture(sectImg, 176, 90);
-        if (sp) {
-          fig++;
-          bits.push(K.text("Figure " + fig + "    Detail section through the design unit" +
-            (r.roofCtx && r.roofCtx.roof === "upper"
-              ? ", on the upper block." : (r.stepped ? ", on the lower roof." : ".")),
-            { size: 9, italic: true, spaceAfter: 2, color: MUTED }));
-          bits.push(K.para(sp, { align: "center", spaceAfter: 10 }));
-          any = true;
-        }
-      }
-      if (planImg) {
-        var pp = doc.picture(planImg, 176, 110);
-        if (pp) {
-          fig++;
-          bits.push(K.text("Figure " + fig + "    Roof plan, ballast units and design-unit centre.",
-            { size: 9, italic: true, spaceAfter: 2, color: MUTED }));
-          bits.push(K.para(pp, { align: "center", spaceAfter: 8 }));
-          any = true;
-        }
-      }
-      if (!any) {
-        bits.push(K.text("Figures could not be produced in this browser. The numerical calculation is complete without them.",
-          { size: 9, italic: true, color: MUTED }));
-      }
-      var at = doc._figAnchor;
-      if (typeof at === "number") doc.body.splice.apply(doc.body, [at, 0].concat(bits));
-      else bits.forEach(function (b) { doc.add(b); });
-    }
-
-    return { doc: doc, insertFigures: insertFigures,
-             insertBallastFigure: insertBallastFigure };
+    return { doc: doc, insertAllFigures: insertAllFigures };
   }
 
-  function exportDocx() {
+  function exportDocx() { exportReport("full"); }
+  function exportShort() { exportReport("short"); }
+
+  function exportReport(mode) {
     if (typeof DocxKit === "undefined") {
       toast("Word engine missing");
       return;
@@ -8593,7 +9372,7 @@ aeffOut:
        agrees with the inputs it was built from. */
     if (!SCHED || SCHED_STALE) {
       try {
-        var swept = sweepAll();
+        var swept = sweepSite();
         if (swept) { SCHED = swept; SCHED_STALE = false; renderSchedule(); }
       } catch (e) { /* fall through — the report will say the sweep is missing */ }
     }
@@ -8628,19 +9407,25 @@ aeffOut:
       } catch (e) { return Promise.resolve(null); }
     }
 
-    Promise.all([rasterOne("plan"), rasterOne("section"), rasterHeat(), rasterStep()])
+    Promise.all([rasterOne("plan"), rasterOne("section"), rasterHeat(), rasterStep(),
+                 rasterOne("zoneMap")])
       .then(function (imgs) {
-      var pack = buildEngineeringReport(r);
-      pack.insertBallastFigure(imgs[2]);
-      pack.insertFigures(imgs[0], imgs[1], imgs[3]);
+      var pack;
+      if (mode === "short") {
+        pack = buildEngineeringReport(r, "short", { plan: imgs[0], heat: imgs[2], zone: imgs[4] });
+      } else {
+        pack = buildEngineeringReport(r, "full");
+        pack.insertAllFigures(imgs[0], imgs[1], imgs[2], imgs[3], imgs[4]);
+      }
       var blob = pack.doc.toBlob();
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = (S.client ? fileSafe(S.client) + "_" : "") +
-        fileSafe(S.project || "untitled") + "_ballast_" + fileSafe(S.revision || "draft") + ".docx";
+        fileSafe(S.project || "untitled") + "_ballast_" +
+        (mode === "short" ? "summary_" : "") + fileSafe(S.revision || "draft") + ".docx";
       a.click();
       URL.revokeObjectURL(a.href);
-      toast("Report downloaded");
+      toast(mode === "short" ? "Summary report downloaded" : "Engineering report downloaded");
     }).catch(function () { toast("Report failed"); });
   }
 
@@ -8740,7 +9525,11 @@ aeffOut:
       selRow: Math.round(pnum(a.selRow, 0)),
       partI: Math.max(0, Math.round(pnum(a.partI, 0))),
       arrayRot: wrapDeg(a.arrayRot != null ? a.arrayRot : 0),
-      roof: (a.roof === "upper") ? "upper" : "lower"
+      roof: (a.roof === "upper") ? "upper" : "lower",
+      /* Which roof of the site this array stands on. Blank on a job written
+         before v78; filled from the first roof when the set is built, so an
+         existing single-roof job is unchanged. */
+      roofId: a.roofId || ""
     };
     if (a.parts && a.parts.length) {
       out.parts = a.parts.map(function (p) {
@@ -8766,6 +9555,15 @@ aeffOut:
       }, 0)];
     } else {
       S.arrays = S.arrays.map(function (a, i) { return snapshotArray(a, i); });
+    }
+    /* Adopt any array that predates the roof set, and keep the active index
+       pointing at an array that belongs to the roof now selected. */
+    if (Array.isArray(S.roofs) && S.roofs.length) {
+      var rid0 = S.roofs[0].id;
+      S.arrays.forEach(function (a) {
+        if (!a.roofId || !S.roofs.some(function (rf) { return rf.id === a.roofId; }))
+          a.roofId = rid0;
+      });
     }
     var idx = Math.round(pnum(S.arrayI, 0));
     if (idx < 0 || idx >= S.arrays.length) idx = 0;
@@ -9201,11 +9999,22 @@ aeffOut:
   /* Add a new array on the named roof. The offsets are reset so the new array
      lands inside its own roof frame rather than inheriting a position measured
      against the other one. */
+  function activeRoofId() {
+    ensureRoofs();
+    return (S.roofs[S.roofI] || {}).id || "";
+  }
+  function arraysHere() {
+    ensureArrays();
+    var rid = activeRoofId();
+    return S.arrays.filter(function (a) { return !a.roofId || a.roofId === rid; });
+  }
+
   function addArrayOnRoof(roof) {
     ensureArrays();
     syncActiveFromS();
     var cur = S.arrays[S.arrayI];
     var next = snapshotArray(cur, S.arrays.length);
+    next.roofId = activeRoofId();
     next.name = nextArrayName();
     delete next.parts;
     next.partI = 0;
@@ -9501,6 +10310,7 @@ aeffOut:
     }
     syncRailPick();
     applyNoStack();
+    roofWriteBack();
   }
 
   function fill() {
@@ -9862,6 +10672,7 @@ aeffOut:
         '<button type="button" id="copyRes">Copy result</button>' +
         '<button type="button" id="exportSheet">Export sheet</button>' +
         '<button type="button" id="exportDocx" class="go">Engineering report</button>' +
+        '<button type="button" id="exportShort">Summary report</button>' +
       '</div>' +
       '<p class="method">Rational design: ' + (r.c17 ? 'PV2-2017 / ASCE 7-16' : 'PV2-2012') + ' coefficients on SANS 10160-3 q<sub>p</sub>. ' +
       r.comboLabel +
@@ -9901,7 +10712,7 @@ aeffOut:
       sr.disabled = true; sr.textContent = "Sweeping\u2026";
       setTimeout(function () {
         read();
-        SCHED = sweepAll();
+        SCHED = sweepSite();
         renderSchedule();
         sr.disabled = false; sr.textContent = "Sweep every unit";
         if (!SCHED) toast("Could not sweep \u2014 check the array layout");
@@ -9912,6 +10723,7 @@ aeffOut:
       n.addEventListener("input", function () { if (SCHED) renderSchedule(); });
     });
     var ed = el("exportDocx"); if (ed) ed.onclick = exportDocx;
+    var es = el("exportShort"); if (es) es.onclick = exportShort;
 
     /* flag the exact fields at fault */
     document.querySelectorAll(".f input.bad, .f select.bad").forEach(function (n) {
@@ -10006,6 +10818,14 @@ aeffOut:
     trace(r);
     matrix(r);
     if (window.BallastDraw) {
+      var fsi = el("figSite");
+      if (fsi) {
+        ensureRoofs();
+        fsi.innerHTML = (S.roofs.length > 1 && window.BallastDraw.sitePlan)
+          ? window.BallastDraw.sitePlan(S) : "";
+        fsi.style.display = fsi.innerHTML ? "" : "none";
+      }
+      renderRoofBar();
       var fst = el("figStep");
       if (fst) {
         var stepSvg = (S.stepped && window.BallastDraw.sectionStepped)
@@ -10020,6 +10840,11 @@ aeffOut:
         var packs = window.BallastDraw.layoutAll
           ? window.BallastDraw.layoutAll(S, r)
           : [{ i: 0, L: window.BallastDraw.layoutArray(S, r) }];
+        if (!packs.length) {
+          /* No arrays on the selected roof — the legend has nothing to count. */
+          lg.innerHTML = '<h3>Legend</h3><p class="note">No arrays on this roof yet.</p>';
+          return;
+        }
         var aiL = Math.round(pnum(S.arrayI, 0));
         if (aiL < 0 || aiL >= packs.length) aiL = 0;
         var L = packs[aiL].L;
@@ -10097,6 +10922,164 @@ aeffOut:
     if (!blocked) host._nudged = false;
   }
 
+  function renderRoofBar() {
+    var host = el("roofBar");
+    if (!host) return;
+    ensureRoofs();
+    host.innerHTML = S.roofs.map(function (rf, ix) {
+      return '<button type="button" data-roofpick="' + ix + '" class="' +
+        (ix === S.roofI ? "cur" : "") + '" title="' + rf.WL.toFixed(1) + " \u00d7 " +
+        rf.WS.toFixed(1) + " m, h = " + rf.h.toFixed(2) + ' m">' + rf.name + "</button>";
+    }).join("") +
+      '<span class="sep"></span>' +
+      '<button type="button" id="roofAdd" title="Add another building or roof area">+ Roof</button>' +
+      (S.roofs.length > 1
+        ? '<button type="button" id="roofDel" title="Remove the selected roof">Remove</button>' : "");
+  }
+  /* The Building panel still edits W_L, W_S, h, parapet, setback and slope.
+     Those belong to the roof that is selected, so they are written back to it
+     on every read rather than living only in the flat state. */
+  function roofWriteBack() {
+    if (!Array.isArray(S.roofs) || !S.roofs.length) return;
+    syncRoofFromS();
+  }
+
+  function pickRoof(ix) {
+    ensureRoofs();
+    if (ix === S.roofI) return;
+    syncRoofFromS();                  // keep edits made in the Building panel
+    S.roofI = ix;
+    applyRoofToS();
+    ensureArrays();
+    var rid = activeRoofId();
+    var firstHere = -1;
+    S.arrays.forEach(function (a, k) {
+      if (firstHere < 0 && (!a.roofId || a.roofId === rid)) firstHere = k;
+    });
+    if (firstHere < 0) {
+      /* No arrays on this roof yet — start one rather than showing another
+         roof's layout on it. */
+      var seed = snapshotArray(S.arrays[S.arrayI] || {}, S.arrays.length);
+      seed.roofId = rid;
+      seed.name = nextArrayName();
+      seed.arrayDX = 0; seed.arrayDY = 0;
+      delete seed.parts; seed.partI = 0;
+      S.arrays.push(seed);
+      firstHere = S.arrays.length - 1;
+    }
+    S.arrayI = firstHere;
+    applyActiveToS();
+    fill(); read(); render(); persistNow();
+    toast("Now calculating " + S.roofs[S.roofI].name +
+      "  \u00b7  " + arraysHere().length + " array" + (arraysHere().length === 1 ? "" : "s") +
+      " on it");
+  }
+  (function bindSitePlan() {
+    var host = el("figSite");
+    if (!host) return;
+    var drag = null;
+    function metres(svg, ev) {
+      var vb = (svg.getAttribute("viewBox") || "0 0 1 1").split(/\s+/).map(parseFloat);
+      var box = svg.getBoundingClientRect();
+      var ux = vb[2] / Math.max(box.width, 1e-6);
+      return { vx: (ev.clientX - box.left) * ux, vy: (ev.clientY - box.top) * ux };
+    }
+    host.addEventListener("pointerdown", function (ev) {
+      var t = ev.target;
+      if (!t || !t.getAttribute) return;
+      var mv = t.getAttribute("data-roof"), gr = t.getAttribute("data-roofgrip");
+      if (mv === null && gr === null) return;
+      ensureRoofs();
+      var ix = parseInt(gr !== null ? gr : mv, 10);
+      if (gr === null && ix !== S.roofI) { pickRoof(ix); return; }
+      var svg = host.querySelector("svg");
+      if (!svg) return;
+      /* metres per viewBox unit, read back off the drawn rectangle */
+      var rf = S.roofs[ix];
+      var rect = svg.querySelector('[data-roof="' + ix + '"]');
+      var mpu = pnum(rf.WL, 1) / Math.max(parseFloat(rect.getAttribute("width")), 1e-6);
+      var m0 = metres(svg, ev);
+      drag = { ix: ix, resize: gr !== null, mpu: mpu,
+               x0: pnum(rf.x, 0), y0: pnum(rf.y, 0),
+               w0: pnum(rf.WL, 0), d0: pnum(rf.WS, 0),
+               vx: m0.vx, vy: m0.vy, moved: false };
+      try { host.setPointerCapture(ev.pointerId); } catch (e) {}
+      ev.preventDefault();
+    });
+    host.addEventListener("pointermove", function (ev) {
+      if (!drag) return;
+      var svg = host.querySelector("svg");
+      if (!svg) return;
+      var m1 = metres(svg, ev);
+      var dx = (m1.vx - drag.vx) * drag.mpu, dy = (m1.vy - drag.vy) * drag.mpu;
+      if (Math.abs(dx) > 0.2 || Math.abs(dy) > 0.2) drag.moved = true;
+      var rf = S.roofs[drag.ix];
+      if (drag.resize) {
+        rf.WL = Math.max(3, drag.w0 + dx);
+        rf.WS = Math.max(3, drag.d0 + dy);
+      } else {
+        rf.x = drag.x0 + dx;
+        rf.y = drag.y0 + dy;
+      }
+      if (drag.ix === S.roofI) applyRoofToS();
+      if (MUTE) return;
+      fill(); read(); render();
+    });
+    function end(ev) {
+      if (!drag) return;
+      var d = drag; drag = null;
+      try { host.releasePointerCapture(ev.pointerId); } catch (e) {}
+      var rf = S.roofs[d.ix];
+      ["x", "y", "WL", "WS"].forEach(function (k) {
+        rf[k] = Math.round(pnum(rf[k], 0) * 10) / 10;
+      });
+      if (d.ix === S.roofI) applyRoofToS();
+      fill(); read(); render(); persistNow();
+      if (d.moved) toast(d.resize
+        ? (rf.name + " resized to " + rf.WL.toFixed(1) + " \u00d7 " + rf.WS.toFixed(1) + " m")
+        : (rf.name + " moved"));
+    }
+    host.addEventListener("pointerup", end);
+    host.addEventListener("pointercancel", end);
+  })();
+
+  (function bindRoofBar() {
+    var host = el("roofBar");
+    if (!host) return;
+    host.addEventListener("click", function (ev) {
+      var t = ev.target;
+      if (!t || !t.getAttribute) return;
+      var pick = t.getAttribute("data-roofpick");
+      if (pick !== null) { pickRoof(parseInt(pick, 10)); return; }
+      if (t.id === "roofAdd") {
+        ensureRoofs();
+        syncRoofFromS();
+        var last = S.roofs[S.roofs.length - 1];
+        var nu = JSON.parse(JSON.stringify(last));
+        nu.id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        nu.name = "Roof " + String.fromCharCode(65 + S.roofs.length);
+        nu.x = pnum(last.x, 0) + pnum(last.WL, 0) + 12;   // placed clear of the last one
+        S.roofs.push(nu);
+        S.roofI = S.roofs.length - 1;
+        applyRoofToS();
+        fill(); read(); render(); persistNow();
+        toast(nu.name + " added \u2014 drag it into position on the site plan");
+        return;
+      }
+      if (t.id === "roofDel") {
+        ensureRoofs();
+        if (S.roofs.length < 2) { toast("A job needs at least one roof"); return; }
+        var rf = S.roofs[S.roofI];
+        if (!confirm("Remove " + rf.name + "?\n\nAny arrays drawn on it stay with the job but " +
+          "will need reassigning.")) return;
+        S.roofs.splice(S.roofI, 1);
+        S.roofI = 0;
+        applyRoofToS();
+        fill(); read(); render(); persistNow();
+        toast(rf.name + " removed");
+      }
+    });
+  })();
   function setRailPane(which) {
     RAIL_PANE = which;
     ["result", "opt", "gate"].forEach(function (p) {
@@ -10352,7 +11335,7 @@ aeffOut:
       (S.omega <= 0.5 && S.h1 <= 10 * 0.0254)
         ? "ω ≈ 0° and h₁ ≤ 254 mm — the components and cladding route is available as an alternative."
         : "ω = " + f(S.omega, 1) + "°, h₁ = " + f(S.h1, 3) + " m — not flush-mounted, so this route " +
-          "does not apply and Figure 29.9-1 governs.");
+          "does not apply and " + (S.codeBasis === "pv2012" ? "Figure 29.9-1" : "Figure 29.4-7") + " governs.");
 
     step("Minimum setback from roof edge", "PV2 note 4",
       "s_min = max[2(h₂ − h_pt), 1.219] = max[2(" + f(S.h2, 3) + " − " + f(S.hpt, 2) + "), 1.219] = <b>" +
@@ -11599,6 +12582,26 @@ aeffOut:
       chk("interior unit has no peeling case", interior.peel === null ? 1 : 0, 1, 0);
     })();
 
+    /* Report figures are rasterised by loading each drawing as an image, which
+       parses it as strict XML. The on-screen HTML parser forgives malformed
+       markup, so a broken drawing can look fine here and still drop out of every
+       report. A stray quote did exactly that to the roof plan from v57 to v83.
+       Parse each drawing the way the rasteriser will. */
+    head("Report drawings parse as strict XML");
+    if (typeof DOMParser !== "undefined" && window.BallastDraw) {
+      [["roof plan", "plan"], ["detail section", "section"], ["roof zone map", "zoneMap"]]
+        .forEach(function (pr) {
+          var svgX = "";
+          try { svgX = window.BallastDraw[pr[1]](S, LAST) || ""; } catch (eX) { svgX = ""; }
+          if (!svgX) { chk(pr[0] + " drawing produced", 0, 1, 0); return; }
+          if (svgX.indexOf("xmlns=") < 0)
+            svgX = svgX.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+          var dom = new DOMParser().parseFromString(svgX, "image/svg+xml");
+          chk(pr[0] + " is well-formed XML",
+            dom.getElementsByTagName("parsererror").length === 0 ? 1 : 0, 1, 0);
+        });
+    }
+
     chk("LM-R46-L Ixx", RAILS["LM-R46-L"].I, 59760, 0);
     chk("LM-R46-L Zxx is the lesser of the two faces",
       RAILS["LM-R46-L"].Z, Math.min(RAILS["LM-R46-L"].ZxxT, RAILS["LM-R46-L"].ZxxB), 0.01);
@@ -12061,6 +13064,7 @@ aeffOut:
     document.addEventListener("click", function () { extra.classList.remove("open"); more.setAttribute("aria-expanded", "false"); });
   }
   var edm = el("exportDocxMore"); if (edm) edm.onclick = exportDocx;
+  var esm = el("exportShortMore"); if (esm) esm.onclick = exportShort;
   el("saveBtn").onclick = function () {
     read();
     var out = JSON.parse(JSON.stringify(S));
@@ -12308,6 +13312,17 @@ aeffOut:
         window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
       }
     });
+  })();
+
+  /* Keep the header chip honest: it read "v55 · engine 3.0.0" for 26 releases
+     because it was typed rather than read, which is the wrong thing to show
+     when checking whether a deployed copy is current. */
+  (function stampVersion() {
+    var c = el("verChip");
+    if (!c) return;
+    var m = /v(\d+)\s*<\/title>|\u00b7\s*v(\d+)/.exec(document.title || "");
+    var build = m ? (m[1] || m[2]) : "";
+    c.textContent = (build ? "v" + build + " \u00b7 " : "") + "engine " + E.ENGINE_VERSION;
   })();
 
   window.addEventListener("pagehide", persistNow);

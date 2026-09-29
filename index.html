@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v85</title>
+<title>Ballast — rooftop PV ballast design · v86</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -571,7 +571,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v85 · engine 4.3.3</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v86 · engine 4.3.4</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -1322,7 +1322,7 @@ tbody tr:last-child td{border-bottom:0}
   var SANS_CR_COEFF = 1.36;
   /* SANS 10160-3 Table 4 — air density vs altitude (kg/m³). Linear interpolation. */
   var SANS_RHO_TABLE = [[0, 1.20], [500, 1.12], [1000, 1.06], [1500, 1.00], [2000, 0.94]];
-  var ENGINE_VERSION = "4.3.3";
+  var ENGINE_VERSION = "4.3.4";
   var SCHEMA_VERSION = 4;
 
   /* ---- ASCE 7 exposure constants (Table 26.9-1) --------------------------- */
@@ -4425,7 +4425,7 @@ window.BallastDraw = (function () {
     var b2 = 2 * apv, b5 = 5 * apv;
 
     /* Room above and to the left for two rows of zone-band dimensions. */
-    var VB_W = 740, ML = 84, MR = 200, MT = 88, MB = 50;
+    var VB_W = 760, ML = 112, MR = 200, MT = 112, MB = 50;
     var PW = VB_W - ML - MR;
     var sc = Math.min(PW / WL, 330 / WS);
     var PH = WS * sc, VB_H = MT + PH + MB;
@@ -4520,17 +4520,99 @@ window.BallastDraw = (function () {
         '" fill="none" stroke="#132229" stroke-width=".7" stroke-dasharray="1.5 2"/>';
     }
 
-    /* ---- zone-band distances from the edges ----
-       Along the north edge and down the west edge; the bands are the same from
-       every edge, so one of each is enough. A band longer than the roof side is
-       drawn to the far edge and says so, rather than being left off. */
-    function bandLabel(b, side, tag) {
-      return tag + " = " + fx(b, 1) + " m" + (b > side + 1e-9 ? "  (beyond the roof)" : "");
+    /* ---- zone distances, roof edge to the end of each zone ----------------
+       Drawn as a structural drawing would: an extension line from the corner of
+       each zone band out to its dimension, so the reader can see which boundary
+       every figure measures to. The earlier version had short ticks only, so the
+       5h dimension ended on a stretch of roof edge where nothing changes, and
+       labels wider than their dimension sat on their own arrowheads.
+
+       Labels are bold and set in a style attribute, so the report stylesheet
+       cannot shrink them. A label too long for its dimension moves past the
+       end rather than overlapping it. A band longer than the roof side runs to
+       the far edge and carries on as an open arrow, because the boundary it
+       measures to is off the roof. */
+    var DK = "#132229", DF = "font:700 12px Inter,Segoe UI,Arial,sans-serif;fill:" + DK;
+    function lab(x, y, t, anchor, rot) {
+      return '<text x="' + fx(x, 1) + '" y="' + fx(y, 1) + '" text-anchor="' + anchor +
+        '" style="' + DF + '"' + (rot ? ' transform="rotate(' + rot + ',' + fx(x, 1) + ',' +
+        fx(y, 1) + ')"' : '') + '>' + xe(t) + '</text>';
     }
-    o += hdim(X(0), X(Math.min(b2, WL)), Y(0) - 14, bandLabel(b2, WL, "2" + BL), "z");
-    o += hdim(X(0), X(Math.min(b5, WL)), Y(0) - 34, bandLabel(b5, WL, "5" + BL), "z");
-    o += vdim(Y(0), Y(Math.min(b2, WS)), X(0) - 14, bandLabel(b2, WS, "2" + BL), "z", false);
-    o += vdim(Y(0), Y(Math.min(b5, WS)), X(0) - 36, bandLabel(b5, WS, "5" + BL), "z", false);
+    function ln(x1, y1, x2, y2, w, dash, ms, me) {
+      return '<line x1="' + fx(x1, 1) + '" y1="' + fx(y1, 1) + '" x2="' + fx(x2, 1) + '" y2="' +
+        fx(y2, 1) + '" stroke="' + DK + '" stroke-width="' + w + '"' +
+        (dash ? ' stroke-dasharray="' + dash + '"' : '') +
+        (ms ? ' marker-start="url(#abz)"' : '') + (me ? ' marker-end="url(#ahz)"' : '') + '/>';
+    }
+    /* Does this band have a boundary on the roof along this axis? A 2h boundary
+       shows along a side when 2 x 2h is less than that side (the corner-to-edge
+       colour change). A 5h boundary exists only where zone 1' exists, which needs
+       2 x 5h less than BOTH sides; otherwise the number is real but there is
+       nothing on the roof for it to point at, and a plain dimension ending on
+       empty roof was the confusing case. */
+    function boundaryOn(b, side, isFive) {
+      return isFive ? (2 * b < WL - 1e-9 && 2 * b < WS - 1e-9) : (2 * b < side - 1e-9);
+    }
+    function why(b, side, isFive) {
+      if (b > side + 1e-9) return "  (beyond the roof)";
+      return isFive ? "  (no zone 1\u2032 on this roof)" : "  (no boundary on this roof)";
+    }
+    function dimTop(b, row, tag, isFive) {
+      var side = WL, y = Y(0) - row, xe0 = X(0), xe1 = X(Math.min(b, side));
+      var real = boundaryOn(b, side, isFive);
+      var t = tag + " = " + fx(b, 1) + " m" + (real ? "" : why(b, side, isFive));
+      var o2 = ln(xe0, Y(0) - 3, xe0, y - 6, .6, null);
+      if (real) {
+        var y0 = (2 * b < WS) ? Y(b) : Y(0);
+        o2 += ln(xe1, y0 - 2, xe1, y - 6, .6, "3 2");
+        o2 += ln(xe0, y, xe1, y, .9, null, true, true);
+      } else {
+        o2 += ln(xe0, y, xe1, y, .9, null, true, false);
+        o2 += ln(xe1, y, xe1 + 18, y, .9, "3 2", false, true);
+      }
+      /* Placing the label. An open-ended dimension has nothing at its far end,
+         so its label runs along the line from the roof edge however long it is.
+         A real dimension centres its label when it fits; when it does not, the
+         label goes left of the roof edge, where no extension line can cross it
+         (real labels are short: they carry no qualifier). */
+      var w = t.length * 7.4;
+      if (!real) o2 += lab(xe0 + 8, y - 5, t, "start");
+      else if (w + 10 < xe1 - xe0) o2 += lab((xe0 + xe1) / 2, y - 5, t, "middle");
+      else o2 += lab(xe0 - 8, y + 4, t, "end");
+      return o2;
+    }
+    function dimLeft(b, col, tag, isFive) {
+      var side = WS, x = X(0) - col, y0 = Y(0), y1 = Y(Math.min(b, side));
+      var real = boundaryOn(b, side, isFive);
+      var t = tag + " = " + fx(b, 1) + " m" + (real ? "" : why(b, side, isFive));
+      var o2 = ln(X(0) - 3, y0, x - 6, y0, .6, null);
+      if (real) {
+        var x0 = (2 * b < WL) ? X(b) : X(0);
+        o2 += ln(x0 - 2, y1, x - 6, y1, .6, "3 2");
+        o2 += ln(x, y0, x, y1, .9, null, true, true);
+      } else {
+        o2 += ln(x, y0, x, y1, .9, null, true, false);
+        o2 += ln(x, y1, x, y1 + 18, .9, "3 2", false, true);
+      }
+      /* the full value is always on the top dimension, so a span too short for
+         it carries the band name alone rather than spilling into a neighbour */
+      var w = t.length * 7.4, wt = tag.length * 7.4;
+      if (!real) o2 += lab(x - 6, y0 + 8, t, "end", -90);          // runs down the open line
+      else if (w + 10 < y1 - y0) o2 += lab(x - 6, (y0 + y1) / 2, t, "middle", -90);
+      else if (wt + 8 < y1 - y0) o2 += lab(x - 6, (y0 + y1) / 2, tag, "middle", -90);
+      return o2;
+    }
+    o += dimTop(b2, 22, "2" + BL, false) + dimTop(b5, 50, "5" + BL, true);
+    o += dimLeft(b2, 22, "2" + BL, false) + dimLeft(b5, 50, "5" + BL, true);
+
+    /* name each band where it is drawn, at its own corner */
+    [[b2, "2" + BL], [b5, "5" + BL]].forEach(function (bd) {
+      if (2 * bd[0] < WL && 2 * bd[0] < WS)
+        o += '<text x="' + fx(X(bd[0]) + 5, 1) + '" y="' + fx(Y(bd[0]) + 14, 1) +
+          '" style="font:700 10.5px Inter,Segoe UI,Arial,sans-serif;fill:' + DK + '">' +
+          xe(bd[1]) + '</text>';
+    });
+
     o += hdim(X(0), X(WL), Y(WS) + 20, "W_L " + fx(WL, 1) + " m", "z", true);
     o += vdim(Y(0), Y(WS), X(WL) + 18, "W_S " + fx(WS, 1) + " m", "z", true);
 
@@ -4556,6 +4638,12 @@ window.BallastDraw = (function () {
     o += '<line x1="' + lx + '" y1="' + (ly - 4) + '" x2="' + (lx + 14) + '" y2="' + (ly - 4) +
       '" stroke="#132229" stroke-width=".9" stroke-dasharray="5 3"/>';
     o += txt(lx + 20, ly, "zone band", "dl"); ly += 15;
+    o += txt(lx, ly + 4, "Dimensions run from the roof", "dl"); ly += 16;
+    o += txt(lx, ly, "edge to the end of each zone.", "dl"); ly += 15;
+    if (!boundaryOn(b2, WL, false) || !boundaryOn(b2, WS, false) || !boundaryOn(b5, WL, true)) {
+      o += txt(lx, ly, "An open arrow means that band", "dl"); ly += 13;
+      o += txt(lx, ly, "has no boundary on this roof.", "dl"); ly += 15;
+    }
     if (sb > 0) {
       o += '<line x1="' + lx + '" y1="' + (ly - 4) + '" x2="' + (lx + 14) + '" y2="' + (ly - 4) +
         '" stroke="#132229" stroke-width=".7" stroke-dasharray="1.5 2"/>';

@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v90</title>
+<title>Ballast — rooftop PV ballast design · v91</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -480,6 +480,8 @@ details.more[open]>summary::before{content:"– "}
 .tierlegend span{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);
   font-size:.66rem;color:var(--ink2)}
 .tierlegend i{width:.85rem;height:.85rem;flex:0 0 auto;border:1px solid rgba(19,34,41,.35)}
+#schedOut .tw.tall{max-height:28rem;overflow-y:auto}
+#schedOut .tw.tall thead th{position:sticky;top:0;background:var(--panel)}
 .tierchip{display:inline-block;width:.7rem;height:.7rem;margin-right:.45rem;vertical-align:-.05rem;
   border:1px solid rgba(19,34,41,.35)}
 .fitbad{color:var(--gov);font-weight:600}.fitok{color:var(--pass);font-weight:600}
@@ -574,7 +576,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v90 · engine 4.3.5</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v91 · engine 4.3.5</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -1256,6 +1258,8 @@ tbody tr:last-child td{border-bottom:0}
       <button type="button" id="schedRun" class="go">Sweep every unit</button>
       <label class="f inl"><span>Ballast density <i>kg/m³</i></span><input id="ballastRho"/></label>
       <label class="f inl"><span>Tray coverage <i>% of bay</i></span><input id="trayCover"/></label>
+      <label class="f inl" title="Mass of one ballast block. Each point's requirement is rounded up to whole blocks, so every tier is a whole number of blocks."><span>Ballast block <i>kg</i></span><input id="blockKg"/></label>
+      <label class="chk" title="Give every point its own requirement, rounded up to the next whole kilogram, instead of grouping points into block tiers. Applies on screen and in both reports."><input type="checkbox" id="schedExact"/> Exact values, no tiers</label>
       <span class="eyebrow" id="schedStale"></span>
     </div>
     <div id="schedOut"></div>
@@ -6087,7 +6091,7 @@ aeffOut:
     framingCheck: false, framCondition: "span", framSpan: 2.278, framCant: 0,
     framTribW: 1.134,
     byWhom: "", checkedBy: "", revision: "",
-    ballastRho: 2400, trayCover: 100,
+    ballastRho: 2400, trayCover: 100, blockKg: 25, schedExact: false,
     roofSDL: null, roofSDLRef: "", terrainRef: "", eJustify: "", shareRef: "LM-R42-L continuous over 4 feet at 1.484 m (350 mm row gap). Ixx 45751 mm4, Zxx 2178.6 mm3, fy 196 MPa, 2 rails.",
     screeningRef: "", surfaceType: "", gapPerim: null, gapRow: null,
     railName: "LM-R42-L", railI: 45751, railZ: 2178.6, railFy: 196, railE: 70000, railGM: 1.1,
@@ -6502,10 +6506,73 @@ aeffOut:
      tiers is what turns a uniform-at-worst design into a buildable one.
      ═══════════════════════════════════════════════════════════════════════ */
   var SCHED = null, SCHED_STALE = false;
-  /* Placement tiers: each point takes its required mass rounded UP to the next
-     TIER_STEP kg. The tier table, the report and the placement map all use this. */
-  var TIER_STEP = 25;
-  function tierOf(kg) { return Math.ceil(kg / TIER_STEP) * TIER_STEP; }
+  /* Placement. Each point takes its required mass rounded UP to whole ballast
+     blocks (S.blockKg, 25 kg by default), so every tier is a whole number of
+     blocks. With "exact values" ticked (S.schedExact) there are no tiers: each
+     point takes its own requirement rounded up to the next whole kilogram.
+
+     The sweep stores each point's unrounded requirement. Tiers and totals are
+     rebuilt from those by retier() whenever the schedule is shown or exported,
+     so changing the block mass or the exact option never needs a re-sweep. */
+  function blockKg() { return Math.min(Math.max(pnum(S.blockKg, 25), 1), 5000); }
+  function schedExact() { return !!S.schedExact; }
+  function tierOf(kg) { var b = blockKg(); return Math.ceil(kg / b) * b; }
+  function exactOf(kg) { return Math.ceil(kg); }
+  function placeOf(kg) { return schedExact() ? exactOf(kg) : tierOf(kg); }
+  function blocksIn(kg) { return Math.round(kg / blockKg()); }
+  function blocksTxt(kg) { var n = blocksIn(kg); return n + " block" + (n === 1 ? "" : "s"); }
+
+  function groupTiers(list) {
+    var map = {};
+    list.forEach(function (r) {
+      if (!isFinite(r.kg)) return;
+      var k = tierOf(r.kg);
+      if (!map[k]) map[k] = { kg: k, n: 0, maxE: 0, zones: {}, exposed: {} };
+      map[k].n++; map[k].maxE = Math.max(map[k].maxE, r.E);
+      map[k].zones[r.zone] = 1;
+      map[k].exposed[r.exposed || "shielded"] = 1;
+    });
+    return Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (a, b) { return b.kg - a.kg; });
+  }
+  /* Rebuild tiers and totals for the current block mass and exact option. The
+     total placed is the sum of what goes on each point, so with exact values it
+     is the sum of the per-point masses, not of any tier. */
+  function retier(sc) {
+    if (!sc || !sc.recs) return sc;
+    function placed(recs) {
+      return recs.reduce(function (a, r) { return a + (isFinite(r.kg) ? placeOf(r.kg) : 0); }, 0);
+    }
+    sc.exact = schedExact();
+    sc.blockKg = blockKg();
+    sc.tiers = groupTiers(sc.recs);
+    sc.schedTotal = placed(sc.recs);
+    (sc.byRoof || []).concat(sc.roofSet || []).forEach(function (b) {
+      b.tiers = groupTiers(b.recs);
+      b.schedTotal = placed(b.recs);
+    });
+    return sc;
+  }
+  /* "Tiered" or "Exact", for labels that name the total. */
+  function schedWord(sc) { return sc && sc.exact ? "Exact" : "Tiered"; }
+  /* Where a point is, in words a contractor can find on the roof. */
+  function pointWhere(rec) {
+    var nm = (S.arrays && S.arrays[rec.arr] && S.arrays[rec.arr].name) || ("Array " + (rec.arr + 1));
+    if (rec.roofName) nm = rec.roofName + " \u00b7 " + nm;
+    if (rec.part) nm += " \u00b7 part " + (rec.part + 1);
+    if (SCHED && SCHED.byRoof) nm += rec.roof === "upper" ? " \u00b7 upper block" : " \u00b7 lower roof";
+    return nm;
+  }
+  /* Every point in placement order (roof, array, row north to south, column
+     west to east), with the exact mass to place. Used by the screen table and
+     both reports when exact values are on. */
+  function pointList(sc) {
+    return sc.recs.filter(function (r) { return isFinite(r.kg); }).slice().sort(function (a, b) {
+      return String(a.roofName || "").localeCompare(String(b.roofName || "")) ||
+        (a.roof === b.roof ? 0 : a.roof === "upper" ? 1 : -1) ||
+        a.arr - b.arr || (a.part || 0) - (b.part || 0) || a.j - b.j || a.i - b.i;
+    });
+  }
 
   function bayGeom() {
     var w = Math.PI / 180 * pnum(S.omega, 10);
@@ -6628,19 +6695,7 @@ aeffOut:
       }
     });
     if (!recs.length) return null;
-    function tierUp(list) {
-      var map = {};
-      list.forEach(function (r) {
-        if (!isFinite(r.kg)) return;
-        var k = tierOf(r.kg);
-        if (!map[k]) map[k] = { kg: k, n: 0, maxE: 0, zones: {}, exposed: {} };
-        map[k].n++; map[k].maxE = Math.max(map[k].maxE, r.E);
-        map[k].zones[r.zone] = 1;
-        map[k].exposed[r.exposed || "shielded"] = 1;
-      });
-      return Object.keys(map).map(function (k) { return map[k]; })
-        .sort(function (a, b) { return b.kg - a.kg; });
-    }
+    var tierUp = groupTiers;
     var tiers = tierUp(recs);
     var schedTotal = tiers.reduce(function (a, t) { return a + t.kg * t.n; }, 0);
 
@@ -6733,18 +6788,46 @@ aeffOut:
     var lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
     return lum < 0.5 ? "#FFFFFF" : "#132229";
   }
-  /* The tier key for a sweep: one entry per tier, lightest first, each with its
-     colour. Shared by the map, the legend under it and the report figure. */
-  function tierKey(sc) {
-    var ts = (sc.tiers || []).slice().sort(function (a, b) { return a.kg - b.kg; });
-    var cs = tierColours(ts.length);
-    var byKg = {};
-    ts.forEach(function (t, k) {
-      t = { kg: t.kg, n: t.n, rgb: cs[k], col: rgbStr(cs[k]), ink: inkOn(cs[k]) };
-      ts[k] = t;
-      byKg[t.kg] = t;
-    });
-    return { list: ts, of: function (kg) { return isFinite(kg) ? byKg[tierOf(kg)] || null : null; } };
+  /* The colour key for a sweep, lightest first. Shared by the map, the legend
+     under it and the report figure.
+     Tiers: one entry per tier, so each colour is one block mass.
+     Exact values (v91): there are as many masses as points, too many to colour
+     one by one, so the range is split into up to five equal colour bands. The
+     bands are only a guide to the pattern; the number on each point is the
+     mass to place. */
+  function heatKey(sc) {
+    var list = [], of;
+    if (sc.exact) {
+      var vs = sc.recs.map(function (r) { return r.kg; }).filter(isFinite).map(exactOf);
+      if (!vs.length) return { list: [], of: function () { return null; } };
+      var lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs), span = hi - lo;
+      var nB = Math.max(1, Math.min(5, span + 1));
+      var bandOf = function (v) {
+        return span > 0 ? Math.min(nB - 1, Math.floor((v - lo) * nB / span + 1e-9)) : 0;
+      };
+      var csB = tierColours(nB);
+      for (var k = 0; k < nB; k++) {
+        var from = lo + Math.ceil(k * span / nB - 1e-9);
+        list.push({ from: from, n: 0, rgb: csB[k], col: rgbStr(csB[k]), ink: inkOn(csB[k]) });
+      }
+      list.forEach(function (b, k) {
+        b.to = k < nB - 1 ? list[k + 1].from - 1 : hi;
+        b.label = b.from === b.to ? f0(b.from) : f0(b.from) + "\u2013" + f0(b.to);
+      });
+      vs.forEach(function (v) { list[bandOf(v)].n++; });
+      of = function (kg) { return isFinite(kg) ? list[bandOf(exactOf(kg))] : null; };
+    } else {
+      var ts = (sc.tiers || []).slice().sort(function (a, b) { return a.kg - b.kg; });
+      var cs = tierColours(ts.length), byKg = {};
+      ts.forEach(function (t, k) {
+        var e = { kg: t.kg, n: t.n, rgb: cs[k], col: rgbStr(cs[k]), ink: inkOn(cs[k]),
+                  label: f0(t.kg) };
+        list.push(e);
+        byKg[t.kg] = e;
+      });
+      of = function (kg) { return isFinite(kg) ? byKg[tierOf(kg)] || null : null; };
+    }
+    return { list: list, of: of };
   }
 
   function heatMap(sc) {
@@ -6766,7 +6849,7 @@ aeffOut:
     var VB = 620, sc2 = VB / W, hh = H * sc2;
     var footer = stepped ? 68 : 46;
 
-    var key = tierKey(sc);
+    var key = heatKey(sc);
     if (!key.list.length) return "";
     function px(v) { return ((v - x0 + pad) * sc2).toFixed(1); }
     function py(v) { return ((v - y0 + pad) * sc2).toFixed(1); }
@@ -6797,7 +6880,9 @@ aeffOut:
         '" stroke-width="' + (up ? "1.1" : ".5") + '"><title>' +
         (stepped ? (up ? "upper block \u00b7 " : "lower roof \u00b7 ") : "") +
         "col " + (r.i + 1) + " row " + (r.j + 1) + " \u00b7 " +
-        (tk ? "place " + f0(tk.kg) + " kg (needs " + f0(r.kg) + " kg)" : "not computed") +
+        (!tk ? "not computed" : sc.exact
+          ? "place " + f0(exactOf(r.kg)) + " kg (needs " + f(r.kg, 1) + " kg)"
+          : "place " + f0(tk.kg) + " kg = " + blocksTxt(tk.kg) + " (needs " + f0(r.kg) + " kg)") +
         " \u00b7 E " + f(r.E, 2) + (r.inHalo ? " \u00b7 in the obstruction halo" : "") +
         (r.exposed ? " \u00b7 exposed " + String(r.exposed).replace(/&/g, "&amp;")
           .replace(/</g, "&lt;") : " \u00b7 shielded") + "</title></rect>";
@@ -6805,7 +6890,7 @@ aeffOut:
          it would be too small to read. Labels go on top of every rect, so they
          are collected and written after the loop. */
       if (tk) {
-        var txt = f0(tk.kg);
+        var txt = f0(sc.exact ? exactOf(r.kg) : tk.kg);
         var fs = Math.min(ch * 0.72, cw / (txt.length * 0.62 + 0.3));
         if (fs >= 4.5)
           labels += '<text x="' + (parseFloat(px(r.x)) + cw / 2).toFixed(1) + '" y="' +
@@ -6816,21 +6901,21 @@ aeffOut:
     });
     o += labels;
 
-    /* Tier key: one swatch per tier, lightest first, each labelled with the
-       exact mass it stands for. */
+    /* Colour key: one swatch per tier (or per colour band with exact values),
+       lightest first, each labelled with the mass it stands for. */
     var by0 = hh + 8, bh0 = 11, nT = key.list.length;
-    var sw = Math.min(52, (VB - 4) / nT);
+    var sw = Math.min(sc.exact ? 96 : 52, (VB - 4) / nT);
     key.list.forEach(function (t, k) {
       var x = k * sw;
       o += '<rect x="' + x.toFixed(1) + '" y="' + by0.toFixed(1) + '" width="' +
         (sw - 2).toFixed(1) + '" height="' + bh0 + '" fill="' + t.col +
         '" stroke="rgba(19,34,41,.35)" stroke-width=".5"/>';
       o += '<text x="' + (x + (sw - 2) / 2).toFixed(1) + '" y="' + (by0 + bh0 + 12).toFixed(1) +
-        '" font-size="9.5" fill="#4A5F68" text-anchor="middle">' + f0(t.kg) + '</text>';
+        '" font-size="9.5" fill="#4A5F68" text-anchor="middle">' + t.label + '</text>';
     });
-    o += '<text x="0" y="' + (by0 - 3).toFixed(1) +
-      '" font-size="9.5" fill="#4A5F68">kg to place at each point (tiers of ' + TIER_STEP +
-      ' kg)</text>';
+    o += '<text x="0" y="' + (by0 - 3).toFixed(1) + '" font-size="9.5" fill="#4A5F68">' +
+      (sc.exact ? "kg to place at each point (exact, rounded up to whole kg; colours are a guide)"
+                : "kg to place at each point (whole " + f0(sc.blockKg) + " kg blocks)") + '</text>';
     o += '<text x="' + VB + '" y="' + (by0 - 3).toFixed(1) +
       '" font-size="9.5" fill="#4A5F68" text-anchor="end">north is up \u00b7 ' + sc.n +
       " points</text>";
@@ -6907,16 +6992,7 @@ aeffOut:
     }
     if (!all.length) return null;
 
-    var map = {};
-    all.forEach(function (rec) {
-      if (!isFinite(rec.kg)) return;
-      var k = tierOf(rec.kg);
-      if (!map[k]) map[k] = { kg: k, n: 0, maxE: 0, zones: {}, exposed: {} };
-      map[k].n++; map[k].maxE = Math.max(map[k].maxE, rec.E);
-      map[k].zones[rec.zone] = 1; map[k].exposed[rec.exposed || "shielded"] = 1;
-    });
-    var tiers = Object.keys(map).map(function (k) { return map[k]; })
-      .sort(function (a, b) { return b.kg - a.kg; });
+    var tiers = groupTiers(all);
     var worst = all.reduce(function (w, rec) {
       return (isFinite(rec.kg) && (!w || rec.kg > w.kg)) ? rec : w; }, null);
     return {
@@ -6938,7 +7014,7 @@ aeffOut:
       el("schedStamp").textContent = "";
       return;
     }
-    var sc = SCHED, B = bayGeom();
+    var sc = retier(SCHED), B = bayGeom();
     var saving = sc.uniform > 0 ? (1 - sc.schedTotal / sc.uniform) : 0;
     var sel = LAST && isFinite(LAST.requiredKg) ? LAST.requiredKg : NaN;
 
@@ -6947,7 +7023,7 @@ aeffOut:
       '<div><span>Governing unit</span><b class="g">' + f0(sc.worst.kg) + ' kg</b></div>' +
       '<div><span>On screen</span><b>' + (isFinite(sel) ? f0(sel) + " kg" : "\u2014") + '</b></div>' +
       '<div><span>Uniform at worst</span><b>' + f(sc.uniform / 1000, 1) + ' t</b></div>' +
-      '<div><span>Tiered schedule</span><b class="ok">' + f(sc.schedTotal / 1000, 1) + ' t</b></div>' +
+      '<div><span>' + schedWord(sc) + ' schedule</span><b class="ok">' + f(sc.schedTotal / 1000, 1) + ' t</b></div>' +
       '<div><span>Saving</span><b class="ok">' + f(100 * saving, 0) + ' %</b></div>' +
       '</div>';
 
@@ -6976,7 +7052,7 @@ aeffOut:
         sc.byRoof.map(function (b) {
           return '<li><span class="zn">' + b.label + '</span><b>' +
             f(b.schedTotal / 1000, 2) + ' t</b><s>' + b.n + ' point' + (b.n === 1 ? "" : "s") +
-            '  ·  ' + b.tiers.length + ' tier' + (b.tiers.length === 1 ? "" : "s") +
+            (sc.exact ? '' : '  ·  ' + b.tiers.length + ' tier' + (b.tiers.length === 1 ? "" : "s")) +
             '  ·  worst ' + (b.worst ? f0(b.worst.kg) + ' kg' : '\u2014') +
             (b.inHalo ? '  ·  ' + b.inHalo + ' in the obstruction halo' : '') +
             '</s></li>';
@@ -6998,14 +7074,29 @@ aeffOut:
         'did not pass their applicability checks</b> and are shown blank. Fix those before ' +
         'relying on the totals.</p>';
 
-    var tKey = tierKey(sc);
-    var rows = sc.tiers.map(function (t) {
+    var tKey = heatKey(sc);
+    function depthCell(kg) {
+      var depth = B.bay > 0 ? (kg / B.bay / B.rho) : Infinity;
+      var fits = depth <= B.clearLo + 1e-9;
+      return "<td class='" + (fits ? "fitok" : "fitbad") + "'>" +
+        f(depth * 1000, 0) + " mm" + (fits ? "" : " \u2014 exceeds " +
+          f(B.clearLo * 1000, 0) + " mm clear") + "</td>";
+    }
+    function chip(tk) {
+      return tk ? '<i class="tierchip" style="background:' + tk.col + '"></i>' : "";
+    }
+    var rows = sc.exact ? pointList(sc).map(function (rec) {
+      var kg = exactOf(rec.kg);
+      return "<tr><td>" + pointWhere(rec) + "</td><td>" + (rec.j + 1) + "</td><td>" + (rec.i + 1) +
+        "</td><td>" + chip(tKey.of(rec.kg)) + "<b>" + f0(kg) + " kg</b></td><td>" + f(rec.kg, 1) +
+        "</td><td>" + f(rec.E, 2) + "</td><td>" + (rec.exposed || "shielded") + "</td>" +
+        depthCell(kg) + "</tr>";
+    }).join("") : sc.tiers.map(function (t) {
       var depth = B.bay > 0 ? (t.kg / B.bay / B.rho) : Infinity;
       var fits = depth <= B.clearLo + 1e-9;
       var ex = Object.keys(t.exposed).filter(function (x) { return x !== "shielded"; });
       var tk = tKey.of(t.kg);
-      return "<tr><td>" + (tk ? '<i class="tierchip" style="background:' + tk.col + '"></i>' : "") +
-        f0(t.kg) + " kg</td><td>" + t.n + "</td><td>" +
+      return "<tr><td>" + chip(tk) + f0(t.kg) + " kg</td><td>" + blocksIn(t.kg) + "</td><td>" + t.n + "</td><td>" +
         f(t.kg * t.n / 1000, 2) + "</td><td>" + f(t.maxE, 2) + "</td><td>" +
         (ex.length ? ex.join(", ") : "shielded") + "</td><td>" +
         f(t.kg / B.bay, 0) + "</td><td class='" + (fits ? "fitok" : "fitbad") + "'>" +
@@ -7021,7 +7112,20 @@ aeffOut:
       (sc.crossShielded ? " " + sc.crossShielded + " front-row units are shielded by a " +
         "neighbouring block rather than being exposed." : "") + '</p>';
 
-    var tbl = fetchNote + '<div class="tw"><table><thead><tr><th>Tier</th><th>Units</th><th>Sub-total t</th>' +
+    var tbl = sc.exact ? fetchNote +
+      '<p class="note" style="padding:0 0 .6rem"><b>Exact values.</b> Every point takes its own ' +
+      'requirement rounded up to the next whole kilogram, listed in placement order: roof, array, ' +
+      'then row (north to south) and column (west to east). The colours on the plan are a guide ' +
+      'to the pattern only.</p>' +
+      '<div class="tw tall"><table><thead><tr><th>Array</th><th>Row</th><th>Col</th>' +
+      '<th>Place</th><th title="The computed requirement before rounding up to whole kilograms.">needs kg</th>' +
+      '<th>γ_E</th><th>exposure</th><th>depth over the bay</th></tr></thead>' +
+      "<tbody>" + rows + "</tbody></table></div>" +
+      '<p class="note">Total placed ' + f(sc.schedTotal / 1000, 2) + ' t over ' + sc.n +
+      ' points. Depth is at ' + f0(B.rho) + ' kg/m\u00b3 over a bay of ' + f(B.bay, 2) +
+      ' m\u00b2 against ' + f(B.clearLo * 1000, 0) + ' mm clear under the low edge.</p>'
+      : fetchNote + '<div class="tw"><table><thead><tr><th>Tier</th>' +
+      '<th title="Ballast blocks per point at ' + f0(sc.blockKg) + ' kg each">Blocks</th><th>Units</th><th>Sub-total t</th>' +
       '<th title="The highest array edge factor among the units grouped into this tier. 1.00 means every unit in it is sheltered; above that, at least one sits on an exposed array edge.">max γ_E</th><th>exposure</th><th>kg/m²</th><th>depth over the bay</th></tr></thead>' +
       "<tbody>" + rows + "</tbody></table></div>" +
       '<p class="note">Bay area per unit = ' + f(B.bay, 2) + ' m\u00b2 (footprint ' +
@@ -7033,16 +7137,21 @@ aeffOut:
       'and exposed units together; this column says whether the tier owes its mass to edge ' +
       'exposure. 1.00 means every unit in it is sheltered. Above 1.00 means at least one unit ' +
       'sits on an exposed array edge \u2014 under PV2-2017 that is capped at 1.50, and the ' +
-      'exposure column beside it names which side.</p>';
+      'exposure column beside it names which side.</p>' +
+      '<p class="note">Tiers are whole ' + f0(sc.blockKg) + ' kg ballast blocks: each point\u2019s ' +
+      'requirement is rounded up to the next block. Set the block mass above, or tick ' +
+      '\u201cExact values, no tiers\u201d for each point\u2019s own mass.</p>';
 
     host.innerHTML = '<div class="sched-grid"><div>' + kpi + perRoof + warn + tbl + '</div><div>' +
       heatMap(sc) +
       '<div class="tierlegend">' +
       /* One entry per tier, heaviest first like the table: its colour, the
-         exact mass to place and how many points take it. */
-      tierKey(sc).list.slice().reverse().map(function (t) {
-        return '<span><i style="background:' + t.col + '"></i>' + f0(t.kg) + " kg × " +
-          t.n + "</span>";
+         mass to place, the blocks that make it and how many points take it.
+         With exact values, one entry per colour band. */
+      tKey.list.slice().reverse().map(function (t) {
+        return '<span><i style="background:' + t.col + '"></i>' + (sc.exact
+          ? t.label + " kg (" + t.n + ")"
+          : f0(t.kg) + " kg \u00b7 " + blocksTxt(t.kg) + " \u00d7 " + t.n) + "</span>";
       }).join("") +
       '<span>hover a unit for its figures</span></div></div></div>';
     el("schedStamp").innerHTML = "swept " + sc.at.toTimeString().slice(0, 5) +
@@ -7061,6 +7170,7 @@ aeffOut:
 
   function exportSheet() {
     read();
+    retier(SCHED);
     var r = E.compute(toEngine());
     var title = (S.project || "ballast").trim() || "ballast";
     var html = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"/>" +
@@ -7106,10 +7216,14 @@ aeffOut:
         return "<tr><th>Roof utilisation</th><td>"+f(bO/al,3)+" ballast only \u00b7 <b>"+
           f(wS/al,3)+" including array self weight</b> \u00b7 allowance "+f(al,2)+" kPa</td></tr>";})() +
       (SCHED ? "<tr><th>Schedule</th><td>"+SCHED.n+" units swept \u00b7 governing "+
-        f0(SCHED.worst.kg)+" kg \u00b7 uniform "+f(SCHED.uniform/1000,1)+" t \u00b7 tiered "+
+        f0(SCHED.worst.kg)+" kg \u00b7 uniform "+f(SCHED.uniform/1000,1)+" t \u00b7 "+schedWord(SCHED).toLowerCase()+" "+
         f(SCHED.schedTotal/1000,1)+" t</td></tr>" +
-        SCHED.tiers.map(function(t){return "<tr><th>&nbsp;&nbsp;tier "+f0(t.kg)+" kg</th><td>"+
-          t.n+" units \u00b7 "+f(t.kg*t.n/1000,2)+" t \u00b7 max \u03b3_E "+f(t.maxE,2)+"</td></tr>";}).join("")
+        (SCHED.exact
+          ? pointList(SCHED).map(function(rec){return "<tr><th>&nbsp;&nbsp;"+pointWhere(rec)+
+              ", row "+(rec.j+1)+" col "+(rec.i+1)+"</th><td>"+f0(exactOf(rec.kg))+" kg</td></tr>";}).join("")
+          : SCHED.tiers.map(function(t){return "<tr><th>&nbsp;&nbsp;tier "+f0(t.kg)+" kg</th><td>"+
+              blocksTxt(t.kg)+" \u00b7 "+t.n+" units \u00b7 "+f(t.kg*t.n/1000,2)+" t \u00b7 max \u03b3_E "+
+              f(t.maxE,2)+"</td></tr>";}).join(""))
         : "") +
       "<tr><th>Combination</th><td>" + r.comboLabel + "</td></tr>" +
       "<tr><th>ρ</th><td>" + f(r.wind.rho, 3) + " kg/m³" +
@@ -7168,6 +7282,28 @@ aeffOut:
     return S.layout === "duo"
       ? "clockwise from east\u2013west (0\u00b0 = E\u2013W tent default)"
       : "clockwise from north-facing (0\u00b0 = north-facing default)";
+  }
+  /* The ballast table for the Word reports (v91). Tiers: one row per tier with
+     the blocks that make it. Exact values: one row per point, in placement
+     order, with the mass rounded up to the next whole kilogram. */
+  function reportBallastTable(SX, navyTable) {
+    if (SX.exact) {
+      navyTable(["Array", "Row", "Column", "Roof zone", "Mass to place"],
+        pointList(SX).map(function (rec) {
+          return [pointWhere(rec), String(rec.j + 1), String(rec.i + 1), zoneName(rec.zone),
+            f0(exactOf(rec.kg)) + " kg"];
+        }).concat([["All " + SX.n + " points", "", "", "", f(SX.schedTotal / 1000, 2) + " t"]]),
+        [3480, 900, 1100, 2700, 1900]);
+      return;
+    }
+    navyTable(["Tier", "Points", "Mass per point", "Blocks per point", "Sub-total", "Roof zone"],
+      SX.tiers.map(function (t, ti) {
+        var zs = Object.keys(t.zones).map(function (z) { return zoneName(+z); }).join(", ");
+        return [String(ti + 1), String(t.n), f0(t.kg) + " kg",
+          blocksIn(t.kg) + " \u00d7 " + f0(SX.blockKg) + " kg",
+          f(t.kg * t.n / 1000, 2) + " t", zs || "\u2014"];
+      }).concat([["All", String(SX.n), "\u2014", "\u2014", f(SX.schedTotal / 1000, 2) + " t", ""]]),
+      [800, 900, 1600, 1800, 1400, 3580]);
   }
   function zoneName(z) {
     /* PV2-2017 / ASCE 7-16 calls the deep-interior zone 1-prime, not 0. */
@@ -7484,16 +7620,15 @@ aeffOut:
           ["Mass per point", f0(Math.min.apply(null, ks)) + " kg to " +
             f0(Math.max.apply(null, ks)) + " kg"]
         ]);
-        why("Each ballast point has been sized individually for its position on the roof. Place " +
-          "the mass shown for each tier at the points shown in the placement figure. Do not " +
-          "ballast the whole roof at an average mass.");
-        navyTable(["Tier", "Points", "Mass per point", "Sub-total", "Roof zone"],
-          SX.tiers.map(function (t, ti) {
-            var zs = Object.keys(t.zones).map(function (z) { return zoneName(+z); }).join(", ");
-            return [String(ti + 1), String(t.n), f0(t.kg) + " kg",
-              f(t.kg * t.n / 1000, 2) + " t", zs || "—"];
-          }).concat([["All", String(SX.n), "—", f(SX.schedTotal / 1000, 2) + " t", ""]]),
-          [900, 1100, 1900, 1600, 4580]);
+        why(SX.exact
+          ? "Each ballast point has been sized individually for its position on the roof. Place " +
+            "the mass listed for each point, rounded up to the next whole kilogram, at the " +
+            "position shown in the placement figure. Do not ballast the whole roof at an average mass."
+          : "Each ballast point has been sized individually for its position on the roof and " +
+            "rounded up to whole " + f0(SX.blockKg) + " kg ballast blocks. Place the blocks shown " +
+            "for each tier at the points shown in the placement figure. Do not ballast the whole " +
+            "roof at an average mass.");
+        reportBallastTable(SX, navyTable);
         if (SX.roofSet && SX.roofSet.length > 1) {
           subhead("By roof");
           navyTable(["Roof", "Plan", "Points", "Ballast"],
@@ -7963,22 +8098,22 @@ aeffOut:
       resultBox([
         ["Total ballast, all panels", f(SX.schedTotal / 1000, 2) + " t", true],
         ["Ballast points", String(SX.n), true],
-        ["Mass per point", f0(sxLo) + " kg to " + f0(sxHi) + " kg, in " +
-          SX.tiers.length + " tier" + (SX.tiers.length === 1 ? "" : "s")],
-        ["If every point took the heaviest mass", f(SX.uniform / 1000, 2) + " t  \u2014  tiering saves " +
+        ["Mass per point", f0(sxLo) + " kg to " + f0(sxHi) + " kg, " + (SX.exact
+          ? "each point at its own mass"
+          : "in " + SX.tiers.length + " tier" + (SX.tiers.length === 1 ? "" : "s") + " of whole " +
+            f0(SX.blockKg) + " kg blocks")],
+        ["If every point took the heaviest mass", f(SX.uniform / 1000, 2) + " t  \u2014  " +
+          (SX.exact ? "sizing each point" : "tiering") + " saves " +
           f((SX.uniform - SX.schedTotal) / 1000, 2) + " t"]
       ]);
       why("Every ballast point on the roof has been calculated individually at its own position, " +
         "by the same method as the design unit worked in full in Section 4. The masses differ " +
         "because each point has its own roof zone, edge exposure and effective wind area. Place " +
-        "the mass shown for each point; do not ballast the whole roof at the design-unit mass.");
-      navyTable(["Tier", "Points", "Mass per point", "Sub-total", "Where"],
-        SX.tiers.map(function (t, ti) {
-          var zs = Object.keys(t.zones).map(function (z) { return zoneName(+z); }).join(", ");
-          return [String(ti + 1), String(t.n), f0(t.kg) + " kg",
-            f(t.kg * t.n / 1000, 2) + " t", zs || "\u2014"];
-        }).concat([["All", String(SX.n), "\u2014", f(SX.schedTotal / 1000, 2) + " t", ""]]),
-        [900, 1100, 1900, 1600, 4580]);
+        "the mass shown for each point; do not ballast the whole roof at the design-unit mass." +
+        (SX.exact ? " Each mass is the point\u2019s own requirement rounded up to the next whole " +
+          "kilogram." : " Each requirement is rounded up to whole " + f0(SX.blockKg) +
+          " kg ballast blocks, which groups the points into the tiers below."));
+      reportBallastTable(SX, navyTable);
     } else {
       callout("The installation schedule could not be produced, so this section carries the " +
         "design-unit result only. Run \u201cSweep every unit\u201d and re-export before issue.", "fail");
@@ -8015,7 +8150,8 @@ aeffOut:
       subhead("Required ballast by roof zone");
       why("The design unit occupies " + zoneName(r.zone) + ". This table re-runs the same unit " +
         "with only its roof zone changed, to show what each zone is worth. It is a comparison, " +
-        "not the placement \u2014 the tiers above are the placement, because they also carry " +
+        "not the placement \u2014 the " + (SCHED && SCHED.exact ? "point masses" : "tiers") +
+        " above are the placement, because they also carry " +
         "each point's own edge exposure and effective wind area.");
       navyTable(
         ["Roof zone", "Occupancy used", "\u03b3_E", "(GC_rn)nom", "Uplift", "Sliding / unit", "Required / panel"],
@@ -9120,17 +9256,21 @@ aeffOut:
       if (SCHED_STALE)
         callout("This schedule was swept before the last input change and may not match the " +
           "figures above. Re-sweep and re-issue.", "warn");
-      why("The unit on screen is not always the governing unit. A sweep of every unit groups the roof into tiers so the field is not ballasted uniformly at the worst mass.");
+      why(SCHED.exact
+        ? "The unit on screen is not always the governing unit. A sweep of every unit sizes each point on its own, so the field is not ballasted uniformly at the worst mass."
+        : "The unit on screen is not always the governing unit. A sweep of every unit groups the roof into tiers of whole " + f0(SCHED.blockKg) + " kg blocks so the field is not ballasted uniformly at the worst mass.");
       /* Figure 3 is spliced in here once the heat map has been rasterised. */
       doc._ballastAnchor = doc.body.length;
       navyTable(["", ""], [
         ["Units swept", String(SCHED.n)],
         ["Governing unit", f0(SCHED.worst.kg) + " kg"],
         ["Uniform at worst", f(SCHED.uniform / 1000, 1) + " t"],
-        ["Tiered schedule", f(SCHED.schedTotal / 1000, 1) + " t"]
-      ].concat(SCHED.tiers.map(function (t) {
-        return ["Tier " + f0(t.kg) + " kg", t.n + " units  ·  " + f(t.kg * t.n / 1000, 2) +
-          " t  \u00b7  max \u03b3_E " + f(t.maxE, 2)];
+        [schedWord(SCHED) + " schedule", f(SCHED.schedTotal / 1000, 1) + " t"]
+      ].concat(SCHED.exact ? [["Mass per point", "Each point\u2019s own requirement, rounded up " +
+          "to the next whole kilogram \u2014 listed point by point in Section 1"]]
+        : SCHED.tiers.map(function (t) {
+        return ["Tier " + f0(t.kg) + " kg", blocksTxt(t.kg) + "  \u00b7  " + t.n + " units  ·  " +
+          f(t.kg * t.n / 1000, 2) + " t  \u00b7  max \u03b3_E " + f(t.maxE, 2)];
       })), [3600, 6480]);
       var zCount = [0, 1, 2, 3].map(function (z) {
         return { z: z, n: 0, min: Infinity, max: 0 };
@@ -9147,7 +9287,7 @@ aeffOut:
           "height, plan, parapet and setback, so each is calculated on its own and nothing is " +
           "shared between them \u2014 in particular, the whole-array sliding check on one roof " +
           "cannot be restrained by ballast on another.");
-        navyTable(["Roof", "Plan", "h", "Points", "Heaviest", "Tiered total"],
+        navyTable(["Roof", "Plan", "h", "Points", "Heaviest", schedWord(SCHED) + " total"],
           SCHED.roofSet.map(function (b) {
             var ks = b.recs.map(function (x) { return x.kg; }).filter(isFinite);
             return [b.name,
@@ -9168,7 +9308,7 @@ aeffOut:
         why("The two roof planes are procured and installed separately, so the schedule is " +
           "given per plane as well as in total. Each plane is priced on its own roof height, " +
           "parapet and outline; panels on different planes do not shield one another.");
-        navyTable(["Roof plane", "Points", "Lightest", "Heaviest", "Tiered total"],
+        navyTable(["Roof plane", "Points", "Lightest", "Heaviest", schedWord(SCHED) + " total"],
           SCHED.byRoof.map(function (b) {
             var ks = b.recs.map(function (x) { return x.kg; }).filter(isFinite);
             return [
@@ -9474,13 +9614,18 @@ aeffOut:
       if (hp) {
         fig++;
         heatFig = fig;
-        blocks.zone.push(cap("Figure " + fig + "    Ballast placement \u2014 the tier mass to place " +
+        blocks.zone.push(cap("Figure " + fig + "    Ballast placement \u2014 the " +
+          (SCHED && SCHED.exact ? "" : "tier ") + "mass to place " +
           "at every point, green lightest to red heaviest, one scale for the whole job." +
           (SCHED && SCHED.byRoof ? " Heavy outline marks points on the upper block." : "")));
         blocks.zone.push(K.para(hp, { align: "center", spaceAfter: 4 }));
-        blocks.zone.push(note("Each point is labelled with the mass to place there, from the tier " +
-          "table above. Colour groups the tiers; the number is the instruction. Where a point is " +
-          "too small to carry its number, read its tier from the colour key and the table."));
+        blocks.zone.push(note(SCHED && SCHED.exact
+          ? "Each point is labelled with the mass to place there, rounded up to the next whole " +
+            "kilogram. The colours are a guide to the pattern only; the number is the instruction. " +
+            "Where a point is too small to carry its number, read it from the point table."
+          : "Each point is labelled with the mass to place there, from the tier " +
+            "table above. Colour groups the tiers; the number is the instruction. Where a point is " +
+            "too small to carry its number, read its tier from the colour key and the table."));
       }
       if (!blocks.zone.length)
         blocks.zone.push(note("The zone plan and placement figures could not be produced in this " +
@@ -9506,7 +9651,8 @@ aeffOut:
 
       /* Section 5 — point back rather than repeat */
       if (heatFig)
-        blocks.sched.push(note("The placement of these tiers is shown in Figure " + heatFig + "."));
+        blocks.sched.push(note("The placement of " + (SCHED && SCHED.exact ? "these masses" : "these tiers") +
+          " is shown in Figure " + heatFig + "."));
 
       function splice(at, bits) {
         if (typeof at !== "number" || !bits.length) return;
@@ -9547,6 +9693,7 @@ aeffOut:
         if (swept) { SCHED = swept; SCHED_STALE = false; renderSchedule(); }
       } catch (e) { /* fall through — the report will say the sweep is missing */ }
     }
+    retier(SCHED);
 
     function rasterOne(kind) {
       try {
@@ -10390,11 +10537,11 @@ aeffOut:
     "topoH","topoLu","topoLd","topoX","topoZ",
     "roofSDL","gapPerim","gapRow",
     "railI","railZ","railFy","railE","railGM","railsPerPanel","footSpacing","deflLimit",
-    "ballastRho","trayCover"];
+    "ballastRho","trayCover","blockKg"];
   var SELF = ["codeBasis","edgeModel","dafMode","unitRoof","layout","windBasis","terrain","rhoMode","asceUnits","asceExposure","zoneMode","zoneManual",
     "eMode","zoneArrMode","zoneArr","eSlideMode","combo","ccClass","framCondition","topoType","muLib","deflectorMode","gammaPMode","sharePreset"];
   var CHKF = ["useReturnPeriod","zeInclParapet","showConstants","airGapConfirmed","obtuseCorner",
-    "capFastener","loadShareConfirmed","railCheck","framingCheck","computeTopo","railsTied","deflectorOn","pinCorners","railPeel","stepped","steppedAccept"];
+    "capFastener","loadShareConfirmed","railCheck","framingCheck","computeTopo","railsTied","deflectorOn","pinCorners","railPeel","stepped","steppedAccept","schedExact"];
   var TXTF = ["deflectorRef","muRef","tunnelRef","byWhom","checkedBy","revision","client","rpJustify",
     "roofSDLRef","terrainRef","eJustify","shareRef","screeningRef","surfaceType","railName","kfJustify"];
   var DIRS = ["N","S","E","W"];
@@ -11010,10 +11157,6 @@ aeffOut:
         if (!SCHED) toast("Could not sweep \u2014 check the array layout");
       }, 20);
     };
-    ["ballastRho", "trayCover"].forEach(function (id) {
-      var n = el(id); if (!n) return;
-      n.addEventListener("input", function () { if (SCHED) renderSchedule(); });
-    });
     var ed = el("exportDocx"); if (ed) ed.onclick = exportDocx;
     var es = el("exportShort"); if (es) es.onclick = exportShort;
 
@@ -13112,6 +13255,20 @@ aeffOut:
       read(); render();
     });
   })();
+  /* Schedule display settings. Ballast density, tray coverage, block mass and
+     the exact option change how the swept schedule is shown, not any point's
+     requirement, so they re-render it without asking for a re-sweep. The
+     general listeners below call render(), which marks the schedule stale; the
+     listener pair here puts the flag back as it was. (Until v91 the first two
+     were wired inside render(), adding another listener on every render.) */
+  var SCHED_VIEW = ["ballastRho", "trayCover", "blockKg", "schedExact"];
+  var schedWasStale = false;
+  SCHED_VIEW.forEach(function (id) {
+    var n = el(id); if (!n) return;
+    ["input", "change"].forEach(function (ev) {
+      n.addEventListener(ev, function () { schedWasStale = SCHED_STALE; });
+    });
+  });
   ids.forEach(function (id) {
     var n = el(id); if (!n) return;
     n.addEventListener("input", function () { if (MUTE) return; read(); render(); });
@@ -13126,6 +13283,16 @@ aeffOut:
         if (v !== undefined && v !== "" && !isFinite(pnum(n.value, NaN))) { n.value = v; read(); render(); }
       });
     }
+  });
+  SCHED_VIEW.forEach(function (id) {
+    var n = el(id); if (!n) return;
+    ["input", "change"].forEach(function (ev) {
+      n.addEventListener(ev, function () {
+        if (MUTE || !SCHED) return;
+        renderSchedule();
+        if (schedWasStale) markSchedStale();
+      });
+    });
   });
 
   function placeUnit(kind) {

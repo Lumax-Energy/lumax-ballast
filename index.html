@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v86</title>
+<title>Ballast — rooftop PV ballast design · v87</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -571,7 +571,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v86 · engine 4.3.4</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v87 · engine 4.3.4</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -9791,7 +9791,12 @@ aeffOut:
     var nSame = S.arrays.filter(function (x) {
       return ((x.roof === "upper") ? "upper" : "lower") === actRoofM;
     }).length;
-    var canMerge = nSame >= 2 || !!(actM && actM.parts && actM.parts.length >= 2);
+    var ridBar = activeRoofId();
+    var nHere = S.arrays.filter(function (x) {
+      return (!x.roofId || x.roofId === ridBar) &&
+        ((x.roof === "upper") ? "upper" : "lower") === actRoofM;
+    }).length;
+    var canMerge = nHere >= 2 || !!(actM && actM.parts && actM.parts.length >= 2);
     var roofWordM = actRoofM === "upper" ? "upper block" : "lower roof";
     html += '<button type="button" id="arrayMerge"' +
       (canMerge ? "" : " disabled") +
@@ -9938,6 +9943,20 @@ aeffOut:
       };
     });
     if (!laid.length) return [];
+    snapOntoGrid(laid, pitch);
+    return laid.map(function (it) {
+      return {
+        nCols: it.nCols,
+        nRows: it.nRows,
+        arrayDX: it.ax - it.L.axHome,
+        arrayDY: it.ay - it.L.ayHome
+      };
+    });
+  }
+  /* Snap each block's top-left (it.ax, it.ay) onto one grid whose origin is
+     the north-west-most block. Collisions take the next free column east.
+     Mutates and returns the list. Shared by planMerge and planMergeDrawn. */
+  function snapOntoGrid(laid, pitch) {
     var originX = Infinity, originY = Infinity;
     laid.forEach(function (it) {
       originX = Math.min(originX, it.ax);
@@ -9961,12 +9980,81 @@ aeffOut:
       it.ax = ax;
       it.ay = ay;
     });
+    return laid;
+  }
+  /* ---- merge what is DRAWN, not what is stored ---------------------------
+     Before a merge every array turns about its OWN centre. After it, the
+     blocks are parts of one array and layoutAll turns them together about the
+     centre of their combined footprint. Re-using the stored arrayDX/arrayDY
+     (as planMerge does) is only right at 0°: at 90° two arrays side by side
+     E–W came back stacked N–S in the middle of the roof.
+
+     drawnBlocksOf reads where each block actually sits on the plan now;
+     planMergeDrawn works backwards from there, so that once layoutAll turns
+     the merged array about its new pivot every block lands where it was
+     drawn (to within the grid snap). */
+  function drawnBlocksOf(Sx, rx, idxs) {
+    if (!window.BallastDraw || !window.BallastDraw.layoutAll) return null;
+    var items = window.BallastDraw.layoutAll(Sx, rx) || [];
+    var out = [], ok = true;
+    idxs.forEach(function (ai) {
+      var a = (Sx.arrays && Sx.arrays[ai]) || null;
+      if (!a) { ok = false; return; }
+      flattenParts(a).forEach(function (blk, b) {
+        var it = null, k;
+        for (k = 0; k < items.length; k++) {
+          if (items[k].i === ai && (items[k].part || 0) === b) { it = items[k]; break; }
+        }
+        if (!it || !it.L) { ok = false; return; }
+        var L = it.L;
+        var rot = wrapDeg(L.arrayRot || 0);
+        var th = rot * Math.PI / 180, c = Math.cos(th), s = Math.sin(th);
+        var dx = L.ax + L.occW / 2 - L.acx, dy = L.ay + L.occH / 2 - L.acy;
+        out.push({
+          nCols: blk.nCols, nRows: blk.nRows,
+          /* footprint centre as drawn: turned about this array's pivot, after
+             the roof clamp (translateLayout moves ax/ay and the pivot alike) */
+          px: L.acx + dx * c - dy * s,
+          py: L.acy + dx * s + dy * c,
+          occW: L.occW, occH: L.occH,
+          axHome: L.axHome, ayHome: L.ayHome,
+          rot: rot
+        });
+      });
+    });
+    return (ok && out.length) ? out : null;
+  }
+  function planMergeDrawn(blocks, S0, rotDeg) {
+    var pitch = mergePitchOf(S0 || {});
+    var th = wrapDeg(rotDeg) * Math.PI / 180, c = Math.cos(th), s = Math.sin(th);
+    /* Into the merged array's own unturned frame (inverse of the clockwise
+       turn, about the roof origin). The grid snap happens in this frame, so
+       tents line up along the merged array's own rows and columns. */
+    var laid = blocks.map(function (b) {
+      var vx = b.px * c + b.py * s, vy = -b.px * s + b.py * c;
+      return { b: b, ax: vx - b.occW / 2, ay: vy - b.occH / 2 };
+    });
+    if (!laid.length) return [];
+    snapOntoGrid(laid, pitch);
+    /* layoutAll turns the parts about the centre G of their combined unturned
+       footprint. Shifting every block by (R − I)·G makes that turn land each
+       block at R·(its snapped spot), i.e. back where it was drawn. At 0° the
+       shift is zero and this is exactly planMerge. */
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    laid.forEach(function (it) {
+      minX = Math.min(minX, it.ax);
+      minY = Math.min(minY, it.ay);
+      maxX = Math.max(maxX, it.ax + it.b.occW);
+      maxY = Math.max(maxY, it.ay + it.b.occH);
+    });
+    var gx = (minX + maxX) / 2, gy = (minY + maxY) / 2;
+    var tx = (gx * c - gy * s) - gx, ty = (gx * s + gy * c) - gy;
     return laid.map(function (it) {
       return {
-        nCols: it.nCols,
-        nRows: it.nRows,
-        arrayDX: it.ax - it.L.axHome,
-        arrayDY: it.ay - it.L.ayHome
+        nCols: it.b.nCols,
+        nRows: it.b.nRows,
+        arrayDX: it.ax + tx - it.b.axHome,
+        arrayDY: it.ay + ty - it.b.ayHome
       };
     });
   }
@@ -10005,27 +10093,48 @@ aeffOut:
     var active = S.arrays[S.arrayI] || S.arrays[0];
     var hasParts = !!(active && active.parts && active.parts.length >= 2);
     var mRoof = roofOf(active);
-    var sameRoof = arraysOnRoof(mRoof);
-    var otherRoof = S.arrays.filter(function (a) { return roofOf(a) !== mRoof; });
+    /* Only the arrays drawn on the roof being looked at. Arrays on the other
+       roofs of the site stay where they are (layoutAll never draws them here,
+       so they must not be pulled into this roof's merge). */
+    var ridM = activeRoofId();
+    var sameRoof = S.arrays.filter(function (a) {
+      return (!a.roofId || a.roofId === ridM) && roofOf(a) === mRoof;
+    });
+    var otherRoof = S.arrays.filter(function (a) { return sameRoof.indexOf(a) < 0; });
+    var otherLevelN = otherRoof.filter(function (a) {
+      return (!a.roofId || a.roofId === ridM) && roofOf(a) !== mRoof;
+    }).length;
     if (sameRoof.length < 2 && !hasParts) {
-      if (S.stepped && otherRoof.length)
+      if (S.stepped && otherLevelN)
         toast("Nothing to merge on the " + roofWord(mRoof) +
           ". Arrays on the " + roofWord(mRoof === "upper" ? "lower" : "upper") +
           " are merged separately.");
+      else toast("Nothing to merge — only one array on this roof");
       return;
     }
     var parts = [];
     sameRoof.forEach(function (a) {
       flattenParts(a).forEach(function (p) { parts.push(p); });
     });
-    /* Measure merge / snap / DX/DY at arrayRot 0 (same as partHome).
-       Inheriting S.arrayRot would bake rotation into ax/ay; layoutAll
-       would then applyArrayRot again. Keep the active array's angle on
-       the merged record — do not double-apply. */
+    /* The merged array keeps the active array's angle (applied once, by
+       layoutAll). Blocks are placed from where they are DRAWN now, so turned
+       arrays stay put instead of being re-pivoted about the merged centre. */
     var keepRot = wrapDeg((S.arrays[S.arrayI] || S.arrays[0] || {}).arrayRot);
+    var rNow = null;
+    try { rNow = E.compute(toEngine()); } catch (eM) { rNow = null; }
+    var sDrawn = (rNow && rNow.inputs && rNow.inputs.arrays &&
+      rNow.inputs.arrays.length === S.arrays.length) ? rNow.inputs : S;
+    var drawn = drawnBlocksOf(sDrawn, rNow, sameRoof.map(function (a) {
+      return S.arrays.indexOf(a);
+    }));
+    var turned = drawn ? drawn.filter(function (b) {
+      return Math.abs(b.rot - keepRot) > 1e-6;
+    }).length : 0;
     /* Measure the merge inside the outline of the roof being merged, so an
        upper-block merge snaps to the block and not to the building. */
-    var planned = planMerge(parts, sForRoof(mRoof));
+    var planned = drawn
+      ? planMergeDrawn(drawn, sForRoof(mRoof), keepRot)
+      : planMerge(parts, sForRoof(mRoof));
     var keep = snapshotArray(active, 0);
     keep.arrayRot = keepRot;
     keep.roof = mRoof;
@@ -10044,8 +10153,10 @@ aeffOut:
     persistNow();
     toast("Merged the " + roofWord(mRoof) + " \u2014 " + keep.parts.length +
       " blocks on one grid" +
-      (otherRoof.length ? ("; " + otherRoof.length + " array" +
-        (otherRoof.length > 1 ? "s" : "") + " on the " +
+      (turned ? ("; " + turned + " block" + (turned > 1 ? "s" : "") +
+        " turned to " + keepRot + "\u00b0 to match") : "") +
+      (otherLevelN ? ("; " + otherLevelN + " array" +
+        (otherLevelN > 1 ? "s" : "") + " on the " +
         roofWord(mRoof === "upper" ? "lower" : "upper") + " left alone") : ""));
   }
   function alignArrays() {
@@ -12605,6 +12716,52 @@ aeffOut:
         var pmSrc = Function.prototype.toString.call(planMerge);
         chk("planMerge has no shove-south loop",
           (/ay\s*\+=/.test(pmSrc) || /occH/.test(pmSrc)) ? 0 : 1, 1, 0);
+
+        head("Merge keeps turned arrays in place (v87)");
+        /* Two duo arrays side by side E–W, each turned 90°. Before v87 the merge
+           re-pivoted them about the merged centre and they came back stacked
+           N–S in the middle of the roof. Every block must stay within one grid
+           snap of where it was drawn. */
+        var turnS = Object.assign({}, mergeS, { arrayI: 0, arrays: [
+          { name: "Array A", nCols: 6, nRows: 8, arrayDX: -20, arrayDY: 4,
+            selCol: 0, selRow: 0, arrayRot: 90 },
+          { name: "Array B", nCols: 6, nRows: 8, arrayDX: 15, arrayDY: 4,
+            selCol: 0, selRow: 0, arrayRot: 90 }
+        ] });
+        var snapTol = Math.sqrt(cellXM * cellXM + cellYM * cellYM) / 2 + 0.01;
+        [90, 270, 45].forEach(function (deg) {
+          turnS.arrays.forEach(function (a) { a.arrayRot = deg; });
+          var pre = drawnBlocksOf(turnS, { apv: 10.5 }, [0, 1]);
+          var plannedT = pre ? planMergeDrawn(pre, turnS, deg) : [];
+          var mergedS = Object.assign({}, turnS, { arrays: [{
+            name: "Array A", nCols: 6, nRows: 8, selCol: 0, selRow: 0, partI: 0,
+            arrayDX: plannedT.length ? plannedT[0].arrayDX : 0,
+            arrayDY: plannedT.length ? plannedT[0].arrayDY : 0,
+            arrayRot: deg, parts: plannedT
+          }] });
+          var post = plannedT.length === 2 ? drawnBlocksOf(mergedS, { apv: 10.5 }, [0]) : null;
+          var worst = Infinity;
+          if (pre && post && post.length === pre.length) {
+            worst = 0;
+            pre.forEach(function (b, bi) {
+              worst = Math.max(worst, Math.hypot(post[bi].px - b.px, post[bi].py - b.py));
+            });
+          }
+          chk("merge at " + deg + "°: worst block move (m) within one snap",
+            (worst <= snapTol) ? 1 : 0, 1, 0);
+        });
+        turnS.arrays.forEach(function (a) { a.arrayRot = 0; });
+        var pre0 = drawnBlocksOf(turnS, { apv: 10.5 }, [0, 1]);
+        var viaDrawn0 = pre0 ? planMergeDrawn(pre0, turnS, 0) : [];
+        var viaStored0 = planMerge(turnS.arrays.map(function (a) {
+          return { nCols: a.nCols, nRows: a.nRows, arrayDX: a.arrayDX, arrayDY: a.arrayDY };
+        }), turnS);
+        var same0 = viaDrawn0.length === viaStored0.length ? 1 : 0;
+        viaDrawn0.forEach(function (p, pi) {
+          if (Math.abs(p.arrayDX - viaStored0[pi].arrayDX) > 1e-6 ||
+              Math.abs(p.arrayDY - viaStored0[pi].arrayDY) > 1e-6) same0 = 0;
+        });
+        chk("merge at 0° unchanged (drawn path = planMerge)", same0, 1, 0);
       }
     }
 

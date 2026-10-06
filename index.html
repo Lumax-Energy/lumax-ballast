@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v87</title>
+<title>Ballast — rooftop PV ballast design · v88</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -571,7 +571,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v87 · engine 4.3.4</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v88 · engine 4.3.5</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -1322,7 +1322,7 @@ tbody tr:last-child td{border-bottom:0}
   var SANS_CR_COEFF = 1.36;
   /* SANS 10160-3 Table 4 — air density vs altitude (kg/m³). Linear interpolation. */
   var SANS_RHO_TABLE = [[0, 1.20], [500, 1.12], [1000, 1.06], [1500, 1.00], [2000, 0.94]];
-  var ENGINE_VERSION = "4.3.4";
+  var ENGINE_VERSION = "4.3.5";
   var SCHEMA_VERSION = 4;
 
   /* ---- ASCE 7 exposure constants (Table 26.9-1) --------------------------- */
@@ -2034,11 +2034,18 @@ tbody tr:last-child td{border-bottom:0}
   function gammaPResolve(i) {
     var mode = i.gammaPMode || "pv2012";
     var ratio = num(i.hpt, 0) / Math.max(num(i.h, 0.1), 0.1);
-    if (mode === "asce716" || mode === "asce716_well") {
+    /* v88: on the PV2-2017 basis the parapet factor IS Eq. 29.4-6. The 2012
+       Note 6 rule (1.00 up to 1.219 m) is not part of that basis, and on a low
+       building with a tall parapet it is up to 20 % lighter: h = 4 m, h_pt =
+       1.2 m gives 1.00 against 1.20. The 2012 rule stays available only on the
+       2012 basis, for reproducing an old calculation. */
+    var forced = isC17(i.codeBasis) && mode === "pv2012";
+    if (mode === "asce716" || mode === "asce716_well" || isC17(i.codeBasis)) {
       var g = gammaPAsce(i.hpt, i.h);
       return { value: g, mode: "asce716", well: false, ratio: ratio,
-        withdrawn: mode === "asce716_well",
-        reason: "ASCE 7-16 Eq. (29.4-6) / SEAOC PV2-2017: γ_p = min(1.2, 0.9 + h_pt/h) = " + g.toFixed(3) };
+        withdrawn: mode === "asce716_well", forced: forced,
+        reason: "ASCE 7-16 Eq. (29.4-6) / SEAOC PV2-2017: γ_p = min(1.2, 0.9 + h_pt/h) = " + g.toFixed(3) +
+          (forced ? " (the PV2-2012 Note 6 rule is not available on the PV2-2017 basis)" : "") };
     }
     return { value: gammaP(i.hpt), mode: "pv2012", well: false, ratio: ratio,
       reason: "PV2-2012 Note 6 (h_pt ≤ 1.219 m → 1.00; else min(0.25·h_pt,ft, 1.3))" };
@@ -2101,7 +2108,10 @@ tbody tr:last-child td{border-bottom:0}
 
   function arrayRole(i) {
     var c = Math.round(num(i.selCol, 0)), r = Math.round(num(i.selRow, 0));
-    var nc = Math.round(num(i.nCols, 0)), nr = Math.round(num(i.nRows, 0));
+    /* The schedule sweep passes each unit's own block size in _roleNC/_roleNR
+       (v88); otherwise the block on screen sets it. */
+    var nc = Math.round(num(i._roleNC != null ? i._roleNC : i.nCols, 0));
+    var nr = Math.round(num(i._roleNR != null ? i._roleNR : i.nRows, 0));
     if (c < 1 || r < 1 || nc < 1 || nr < 1)
       return { role: "unknown", corner: false, edge: false, second: false, interior: false };
     var colEdge = (c === 1 || c === nc);
@@ -2539,6 +2549,9 @@ tbody tr:last-child td{border-bottom:0}
     var nomR = gcrnNom(i.omega, zone, i.lp, An, { basis: basis, A_ft2: Aft });
     var gpR = gammaPResolve(Object.assign({}, i, { h: rc.hGamma, hpt: rc.hpt }));
     var gp = gpR.value;
+    if (gpR.forced)
+      warnings.push("γ_p method was set to PV2-2012 Note 6, which is not part of the PV2-2017 " +
+        "basis. ASCE 7-16 Eq. 29.4-6 is used instead: γ_p = " + gp.toFixed(3) + ".");
     if (gpR.withdrawn)
       warnings.push("The parapet-well γ_p = 0.85 has been withdrawn in engine 3.0.0 and this " +
         "run uses ASCE 7-16 Eq. 29.4-6 instead. PV2-2017 p.11 describes a drop-off but gives " +
@@ -2616,6 +2629,31 @@ tbody tr:last-child td{border-bottom:0}
     if (sansCombo && kF !== 1 && !String(i.kfJustify || "").trim())
       warnings.push("Table A.1 K_F = " + kF.toFixed(1) + " is applied with no recorded occupancy justification. CC1 is low loss of human life (agricultural / storage where people do not normally enter), not a typical occupied roof.");
     var gW = gWbase * kFapplied;
+
+    /* v88: wind and combination must come from the same code. SANS 10160-3
+       gives a characteristic 1-in-50-year wind, which SANS 10160-1:2019 factors
+       by gamma_W = 1.6. The ASCE 7 LRFD (1.0W) and ASD (0.6W) combinations are
+       calibrated on the ASCE 7-16 strength-level (ultimate) wind, a much rarer
+       event. Pairing SANS wind with them roughly halved the ballast on the
+       default job (147.6 kg -> 68.8 kg ASD, 80.1 kg LRFD) without a word. */
+    var asceCombo = (i.combo === "asd" || i.combo === "lrfd");
+    var sansComboPreset = (i.combo === "sans" || i.combo === "sans2011");
+    if (i.windBasis === "sans" && asceCombo)
+      blockers.push("Load combination " + COMBOS[i.combo].label + " is calibrated on ASCE 7-16 " +
+        "strength-level (ultimate) wind. SANS 10160-3 wind is a characteristic 1-in-50-year value " +
+        "that SANS 10160-1:2019 factors by γ_W = 1.6. Use SANS 10160-1:2019 · 0.9G + 1.6W with " +
+        "SANS wind, or switch the wind basis to ASCE 7.");
+    if (i.windBasis === "asce" && sansComboPreset)
+      warnings.push("ASCE 7-16 basic wind speed is already strength-level. Factoring it again by the " +
+        "SANS γ_W counts the return period twice and is about 1.6× conservative. Use the ASCE 7 " +
+        "LRFD or ASD combination with ASCE wind.");
+    if (i.windBasis === "override")
+      warnings.push("Direct q: confirm it matches the combination. " +
+        (asceCombo ? COMBOS[i.combo].label + " expects an ASCE 7-16 strength-level q_h."
+                   : "A SANS combination expects a characteristic (1-in-50-year) q_p."));
+    if (i.windBasis === "sans" && i.combo === "custom" && gWbase / gG < 1.6 / 0.9 - 1e-9)
+      warnings.push("Custom combination γ_W / γ_G = " + (gWbase / gG).toFixed(2) + " is lighter than " +
+        "SANS 10160-1:2019 0.9G + 1.6W (1.78) on SANS characteristic wind. Record the basis.");
 
     /* --- 1. uplift of the individual ballast --- */
     var upliftKN = Math.max(0, (gW * Fv) / gG - Gs);
@@ -3342,7 +3380,7 @@ tbody tr:last-child td{border-bottom:0}
         "Al Sayegh 2025: up to 50% cut in peak net Cp under cornering winds; +30% dynamic amp in the same tests. 0.70 = 0.50 × 1.30 screening. Banks 2013 and Geurts 2014 agree high-side fairings drop uplift. Not offered when a product tunnel is already claimed — noStackBoth will not multiply the two.",
         { deflectorOn: true, deflectorMode: "lit70" }, "deflector");
     }
-    if ((raw.gammaPMode || "pv2012") === "pv2012") {
+    if (raw.codeBasis === "pv2012" && (raw.gammaPMode || "pv2012") === "pv2012") {
       trial("ASCE 7-16 / PV2-2017 parapet factor",
         "γ_p = min(1.2, 0.9 + h_pt/h). No parapet is 0.90, not 1.00 — the 2012 figure was built on low-parapet tests. SEAOC PV2-2017 superseded Note 6.",
         { gammaPMode: "asce716" }, "parapet-asce");
@@ -6498,6 +6536,7 @@ aeffOut:
     items.forEach(function (it) {
       ((it.L && it.L.units) || []).forEach(function (u) {
         all.push({ arr: it.i, part: it.part, i: u.i, j: u.j,
+                   nC: it.L.nCols, nR: it.L.nRows,
                    x: (u.gx != null ? u.gx - u.w / 2 : u.x),
                    y: (u.gy != null ? u.gy - u.h / 2 : u.y),
                    lx: u.x, ly: u.y,
@@ -6543,6 +6582,19 @@ aeffOut:
       var i2 = JSON.parse(JSON.stringify(base));
       i2.dUO = { N: a.dUO.N, S: a.dUO.S, E: a.dUO.E, W: a.dUO.W };
       i2.dPanel = dp;
+      /* v88: each unit takes its OWN place in its own array block. base is the
+         unit on screen, and until v88 every swept unit inherited its
+         selCol/selRow — so the load-sharing cap, corner pins, edge peeling and
+         the corner-only deflector credit all followed whichever unit happened
+         to be selected. Selecting a corner with pins on priced the whole roof
+         as pinned corners (340 kg governing became 52 kg); selecting an
+         interior unit let real corners share over four supports. */
+      i2.selCol = a.i + 1;
+      i2.selRow = a.j + 1;
+      /* Position within the unit's own block. Kept separate from nCols/nRows,
+         which still describe the array for the whole-array sliding census. */
+      i2._roleNC = a.nC;
+      i2._roleNR = a.nR;
       i2.dRowEnd = (dp.E === 0 || dp.W === 0) ? 0 : 5;
       /* Each unit is priced on the roof it actually stands on. base carries the
          SELECTED unit's roof, which would otherwise price the whole block at
@@ -10672,6 +10724,16 @@ aeffOut:
     }
     var c17 = S.codeBasis !== "pv2012";
     show('[data-c17="1"]', c17);
+    /* v88: the PV2-2012 parapet rule belongs to the 2012 basis only. On the
+       2017 basis the engine uses Eq. 29.4-6 regardless; keep the control honest. */
+    var gpSel = el("gammaPMode");
+    if (gpSel) {
+      var gpOld = gpSel.querySelector('option[value="pv2012"]');
+      if (gpOld) gpOld.disabled = c17;
+      if (c17 && S.gammaPMode === "pv2012") S.gammaPMode = "asce716";
+      if (gpSel.value !== S.gammaPMode) gpSel.value = S.gammaPMode;
+      gpSel.title = c17 ? "On the PV2-2017 basis the parapet factor is ASCE 7-16 Eq. 29.4-6." : "";
+    }
     show('[data-dafm="manual"]', S.dafMode === "manual");
     window.__pv2Basis = S.codeBasis;
     var chipC = el("chipCode");
@@ -12762,6 +12824,40 @@ aeffOut:
               Math.abs(p.arrayDY - viaStored0[pi].arrayDY) > 1e-6) same0 = 0;
         });
         chk("merge at 0° unchanged (drawn path = planMerge)", same0, 1, 0);
+
+        head("Schedule sweep prices each unit at its own position (v88)");
+        /* Until v88 every swept unit inherited the on-screen unit's place in the
+           array, so the load-sharing cap, corner pins and peeling followed the
+           selection. The schedule must not depend on which unit is selected. */
+        var holdSw = JSON.parse(JSON.stringify(S));
+        try {
+          S.layout = "mono"; S.arrayRot = 0; S.stepped = false;
+          S.pinCorners = true; S.loadShare = 4; S.sharePreset = "custom";
+          S.arrays = [snapshotArray({ name: "Array A", nCols: 6, nRows: 4, arrayDX: 0, arrayDY: 0,
+            selCol: 3, selRow: 2, arrayRot: 0 }, 0)];
+          S.arrayI = 0;
+          applyActiveToS();
+          var swMid = sweepAll();
+          S.arrays[0].selCol = 1; S.arrays[0].selRow = 1;
+          applyActiveToS();
+          var swCor = sweepAll();
+          var swOk = !!(swMid && swCor && swMid.recs.length === 24 && swCor.recs.length === 24);
+          chk("sweep: governing unit is the same whichever unit is on screen",
+            (swOk && Math.abs(swMid.worst.kg - swCor.worst.kg) < 0.01) ? 1 : 0, 1, 0);
+          chk("sweep: total is the same whichever unit is on screen",
+            (swOk && Math.abs(swMid.rawTotal - swCor.rawTotal) < 0.01) ? 1 : 0, 1, 0);
+          /* With pins on and a corner on screen, v87 dropped the uplift case on
+             every unit. Units that are not array corners must keep it. */
+          var upliftN = 0;
+          if (swOk) swCor.recs.forEach(function (rec) {
+            if (String(rec.gov || "") === "uplift") upliftN++;
+          });
+          chk("sweep: corner pins do not remove uplift from non-corner units",
+            (swOk && upliftN > 0) ? 1 : 0, 1, 0);
+        } finally {
+          Object.keys(holdSw).forEach(function (k) { S[k] = holdSw[k]; });
+          applyActiveToS();
+        }
       }
     }
 
@@ -12862,6 +12958,32 @@ aeffOut:
     chk("match R20 pick", matchRail("LM-R20-L", 10029, 915.82) === "LM-R20-L" ? 1 : 0, 1, 0);
     chk("match R42 default", matchRail(DEF.railName, DEF.railI, DEF.railZ) === "LM-R42-L" ? 1 : 0, 1, 0);
     chk("edited I becomes custom", matchRail("LM-R20-L", 10029, 999) === "custom" ? 1 : 0, 1, 0);
+
+    head("Wind basis and combination come from the same code (v88)");
+    var cmb = JSON.parse(JSON.stringify(DEF));
+    delete cmb.arrays; delete cmb.roofs;
+    var cmbSans = E.compute(Object.assign({}, cmb, { windBasis: "sans", combo: "sans" }));
+    var cmbAsd  = E.compute(Object.assign({}, cmb, { windBasis: "sans", combo: "asd" }));
+    var cmbLrfd = E.compute(Object.assign({}, cmb, { windBasis: "sans", combo: "lrfd" }));
+    var cmbAsce = E.compute(Object.assign({}, cmb, { windBasis: "asce", combo: "sans" }));
+    var cmbBlk = function (r) {
+      return r.blockers.some(function (b) { return /strength-level/.test(b); });
+    };
+    chk("SANS wind + SANS 0.9G + 1.6W is issuable", (cmbSans.valid && !cmbBlk(cmbSans)) ? 1 : 0, 1, 0);
+    chk("SANS wind + ASCE ASD is blocked", (!cmbAsd.valid && cmbBlk(cmbAsd)) ? 1 : 0, 1, 0);
+    chk("SANS wind + ASCE LRFD is blocked", (!cmbLrfd.valid && cmbBlk(cmbLrfd)) ? 1 : 0, 1, 0);
+    chk("ASCE wind + SANS combination warns (double-counts the return period)",
+      cmbAsce.warnings.some(function (w) { return /counts the return period twice/.test(w); }) ? 1 : 0, 1, 0);
+
+    head("Parapet factor on the PV2-2017 basis (v88)");
+    chk("2017 basis ignores the PV2-2012 γ_p rule (h 4, h_pt 1.2 → 1.20)",
+      E.gammaPResolve({ codeBasis: "pv2017", gammaPMode: "pv2012", hpt: 1.2, h: 4 }).value, 1.20, 0.006);
+    chk("2012 basis keeps the PV2-2012 γ_p rule (h 4, h_pt 1.2 → 1.00)",
+      E.gammaPResolve({ codeBasis: "pv2012", gammaPMode: "pv2012", hpt: 1.2, h: 4 }).value, 1.00, 0.006);
+    var gpMix = E.compute(Object.assign({}, cmb, { codeBasis: "pv2017", gammaPMode: "pv2012", h: 4, hpt: 1.2 }));
+    chk("compute on the 2017 basis uses γ_p = 1.20 and says so",
+      (Math.abs(gpMix.gammaP - 1.2) < 1e-9 &&
+       gpMix.warnings.some(function (w) { return /not part of the PV2-2017/.test(w); })) ? 1 : 0, 1, 0);
 
     el("vres").innerHTML = out;
     el("vres").classList.add("on");

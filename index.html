@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v89</title>
+<title>Ballast — rooftop PV ballast design · v90</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -462,7 +462,8 @@ details.more[open]>summary::before{content:"– "}
 .schedbar .eyebrow{color:var(--gov)}
 .sched-grid{display:grid;gap:.9rem;padding:.8rem 1rem 1rem;min-width:0}
 .sched-grid>div{min-width:0}
-@media (min-width:1000px){.sched-grid{grid-template-columns:minmax(0,1fr) 21rem}}
+/* v90: the placement map sits under the table at full width, so the mass
+   printed on each point is large enough to read. */
 #schedOut{min-width:0}
 #schedOut .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
 #schedOut table{min-width:34rem}
@@ -479,6 +480,8 @@ details.more[open]>summary::before{content:"– "}
 .tierlegend span{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);
   font-size:.66rem;color:var(--ink2)}
 .tierlegend i{width:.85rem;height:.85rem;flex:0 0 auto;border:1px solid rgba(19,34,41,.35)}
+.tierchip{display:inline-block;width:.7rem;height:.7rem;margin-right:.45rem;vertical-align:-.05rem;
+  border:1px solid rgba(19,34,41,.35)}
 .fitbad{color:var(--gov);font-weight:600}.fitok{color:var(--pass);font-weight:600}
 .sheets{padding-bottom:4rem;display:grid;gap:1.2rem;min-width:0}
 .sheets>section{min-width:0}
@@ -571,7 +574,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v89 · engine 4.3.5</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v90 · engine 4.3.5</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -6499,6 +6502,10 @@ aeffOut:
      tiers is what turns a uniform-at-worst design into a buildable one.
      ═══════════════════════════════════════════════════════════════════════ */
   var SCHED = null, SCHED_STALE = false;
+  /* Placement tiers: each point takes its required mass rounded UP to the next
+     TIER_STEP kg. The tier table, the report and the placement map all use this. */
+  var TIER_STEP = 25;
+  function tierOf(kg) { return Math.ceil(kg / TIER_STEP) * TIER_STEP; }
 
   function bayGeom() {
     var w = Math.PI / 180 * pnum(S.omega, 10);
@@ -6621,12 +6628,11 @@ aeffOut:
       }
     });
     if (!recs.length) return null;
-    var step = 25;
     function tierUp(list) {
       var map = {};
       list.forEach(function (r) {
         if (!isFinite(r.kg)) return;
-        var k = Math.ceil(r.kg / step) * step;
+        var k = tierOf(r.kg);
         if (!map[k]) map[k] = { kg: k, n: 0, maxE: 0, zones: {}, exposed: {} };
         map[k].n++; map[k].maxE = Math.max(map[k].maxE, r.E);
         map[k].zones[r.zone] = 1;
@@ -6686,44 +6692,59 @@ aeffOut:
      Since v60 the records carry building coordinates, so the two planes sit in
      their true relative positions. Before that they shared one local frame and
      drew on top of each other. */
-  /* v89: five fixed bands, not a continuous ramp. Until v89 the colour was
-     blended between eight stops, so a unit could land anywhere between two
-     named colours: a point just above the lightest read as a dark/light green
-     in-between, and one past the middle as a yellow/orange in-between. The key
-     names five colours, so each unit now gets exactly one of them, and the
-     legend gives the kg range each colour stands for.
+  /* v90: the map is coloured by TIER, the mass actually placed, and every point
+     is labelled with it. v89 split the kg range into five equal bands, which
+     told a contractor "96-115 kg" when what they place is one block mass. The
+     tiers are the placement (the report says so), so each colour now stands
+     for exactly one tier mass, the legend lists each tier as "350 kg x 2", and
+     each point carries its tier mass as a number when the cell is big enough
+     to read it. The hover tooltip gives the mass to place and the computed
+     requirement behind it.
 
-     The range lo..hi is split into five equal parts. The ORDER is carried by
-     hue; the bands are also spaced in lightness (dark green and red are dark,
-     light green, yellow and orange light) so neighbours stay apart. Colour is
-     still not the record: every point carries its mass in the hover tooltip and
-     the tier table lists the figures. Read the colours for the pattern; read
-     the numbers for the values. */
-  var HEAT_BANDS = [
-    { c: "#1B5E34", n: "dark green"  },
-    { c: "#8DC63F", n: "light green" },
-    { c: "#F7DC1E", n: "yellow"      },
-    { c: "#F07A12", n: "orange"      },
-    { c: "#C62828", n: "red"         }
+     Tier colours run dark green -> light green -> yellow -> orange -> red. With
+     five tiers or fewer each tier gets one of those five; with more, the extra
+     tiers sit between them. Neighbouring tiers can then look alike, which is
+     why the number on the point, not the colour, is the record. */
+  var HEAT_ANCHORS = [
+    [ 27,  94,  52],   /* dark green  */
+    [141, 198,  63],   /* light green */
+    [247, 220,  30],   /* yellow      */
+    [240, 122,  18],   /* orange      */
+    [198,  40,  40]    /* red         */
   ];
+  var HEAT_NONE = "#E3E8E9";
 
-  /* Band index 0..4 for a position t in 0..1 along the job's kg range. The
-     small epsilon keeps a value sitting exactly on a boundary in the upper band
-     despite floating-point noise. */
-  function heatBand(t) {
-    if (!isFinite(t)) return -1;
-    t = Math.max(0, Math.min(1, t));
-    return Math.min(HEAT_BANDS.length - 1, Math.floor(t * HEAT_BANDS.length + 1e-9));
+  /* n distinct colours, lightest tier first. */
+  function tierColours(n) {
+    var A = HEAT_ANCHORS, m = A.length - 1, out = [];
+    for (var k = 0; k < n; k++) {
+      var t = n > 1 ? k / (n - 1) : 0;
+      if (n <= A.length) t = Math.round(t * m) / m;
+      var s = Math.min(m - 1e-9, t * m), i = Math.floor(s), u = s - i;
+      out.push([0, 1, 2].map(function (c) {
+        return Math.round(A[i][c] + u * (A[i + 1][c] - A[i][c]));
+      }));
+    }
+    return out;
   }
-  function heatCol(t) {
-    var b = heatBand(t);
-    return b < 0 ? "#E3E8E9" : HEAT_BANDS[b].c;
+  function rgbStr(c) { return "rgb(" + c.join(",") + ")"; }
+  /* Label ink that stays legible on the fill: white on dark, near-black on light. */
+  function inkOn(c) {
+    var lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    return lum < 0.5 ? "#FFFFFF" : "#132229";
   }
-  /* The job's kg range, shared by the map and the legend under it. */
-  function heatRange(sc) {
-    var kgs = sc.recs.map(function (r) { return r.kg; }).filter(isFinite);
-    if (!kgs.length) return null;
-    return { lo: Math.min.apply(null, kgs), hi: Math.max.apply(null, kgs) };
+  /* The tier key for a sweep: one entry per tier, lightest first, each with its
+     colour. Shared by the map, the legend under it and the report figure. */
+  function tierKey(sc) {
+    var ts = (sc.tiers || []).slice().sort(function (a, b) { return a.kg - b.kg; });
+    var cs = tierColours(ts.length);
+    var byKg = {};
+    ts.forEach(function (t, k) {
+      t = { kg: t.kg, n: t.n, rgb: cs[k], col: rgbStr(cs[k]), ink: inkOn(cs[k]) };
+      ts[k] = t;
+      byKg[t.kg] = t;
+    });
+    return { list: ts, of: function (kg) { return isFinite(kg) ? byKg[tierOf(kg)] || null : null; } };
   }
 
   function heatMap(sc) {
@@ -6745,20 +6766,15 @@ aeffOut:
     var VB = 620, sc2 = VB / W, hh = H * sc2;
     var footer = stepped ? 68 : 46;
 
-    var rg = heatRange(sc);
-    if (!rg) return "";
-    var lo = rg.lo, hi = rg.hi;
-    function col(kg) {
-      if (!isFinite(kg)) return "#E3E8E9";
-      return heatCol(hi > lo ? (kg - lo) / (hi - lo) : 0);
-    }
+    var key = tierKey(sc);
+    if (!key.list.length) return "";
     function px(v) { return ((v - x0 + pad) * sc2).toFixed(1); }
     function py(v) { return ((v - y0 + pad) * sc2).toFixed(1); }
 
     var o = '<svg class="heat" viewBox="0 0 ' + VB.toFixed(0) + " " +
       (hh + footer).toFixed(0) +
-      '" role="img" aria-label="Roof plan with every ballast point shaded by the mass it ' +
-      'requires. Green is the lightest point on the job, red the heaviest.">';
+      '" role="img" aria-label="Roof plan with every ballast point labelled and coloured by ' +
+      'the tier mass to place there. Green is the lightest tier on the job, red the heaviest.">';
 
     /* The block footprint, so it is obvious which points are on the upper plane. */
     if (stepped && bw > 0 && bd > 0) {
@@ -6769,43 +6785,55 @@ aeffOut:
         ' m above the lower roof</title></rect>';
     }
 
+    var labels = "";
     sc.recs.forEach(function (r) {
       var up = r.roof === "upper";
+      var tk = key.of(r.kg);
+      var cw = Math.max(1, r.w * sc2 - 1), ch = Math.max(1, r.h * sc2 - 1);
       o += '<rect x="' + px(r.x) + '" y="' + py(r.y) +
-        '" width="' + Math.max(1, r.w * sc2 - 1).toFixed(1) +
-        '" height="' + Math.max(1, r.h * sc2 - 1).toFixed(1) + '" fill="' + col(r.kg) +
+        '" width="' + cw.toFixed(1) + '" height="' + ch.toFixed(1) + '" fill="' +
+        (tk ? tk.col : HEAT_NONE) +
         '" stroke="' + (up ? "#132229" : "rgba(19,34,41,.22)") +
         '" stroke-width="' + (up ? "1.1" : ".5") + '"><title>' +
         (stepped ? (up ? "upper block \u00b7 " : "lower roof \u00b7 ") : "") +
-        "col " + (r.i + 1) + " row " + (r.j + 1) + " \u00b7 " + f0(r.kg) + " kg \u00b7 E " +
-        f(r.E, 2) + (r.inHalo ? " \u00b7 in the obstruction halo" : "") +
+        "col " + (r.i + 1) + " row " + (r.j + 1) + " \u00b7 " +
+        (tk ? "place " + f0(tk.kg) + " kg (needs " + f0(r.kg) + " kg)" : "not computed") +
+        " \u00b7 E " + f(r.E, 2) + (r.inHalo ? " \u00b7 in the obstruction halo" : "") +
         (r.exposed ? " \u00b7 exposed " + String(r.exposed).replace(/&/g, "&amp;")
           .replace(/</g, "&lt;") : " \u00b7 shielded") + "</title></rect>";
+      /* The tier mass on the point itself, sized to the cell and skipped when
+         it would be too small to read. Labels go on top of every rect, so they
+         are collected and written after the loop. */
+      if (tk) {
+        var txt = f0(tk.kg);
+        var fs = Math.min(ch * 0.72, cw / (txt.length * 0.62 + 0.3));
+        if (fs >= 4.5)
+          labels += '<text x="' + (parseFloat(px(r.x)) + cw / 2).toFixed(1) + '" y="' +
+            (parseFloat(py(r.y)) + ch / 2).toFixed(1) + '" font-size="' + fs.toFixed(1) +
+            '" fill="' + tk.ink + '" text-anchor="middle" dominant-baseline="central"' +
+            ' pointer-events="none">' + txt + '</text>';
+      }
     });
+    o += labels;
 
-    /* Colour key: one solid block per band, ticked with kg at every band edge,
-       so each colour on the plan can be read straight back to a mass range. */
-    var by0 = hh + 8, bw0 = 240, bh0 = 9, nB = HEAT_BANDS.length;
-    HEAT_BANDS.forEach(function (bd0, k) {
-      o += '<rect x="' + (k * bw0 / nB).toFixed(1) + '" y="' + by0.toFixed(1) +
-        '" width="' + (bw0 / nB).toFixed(1) + '" height="' + bh0 + '" fill="' + bd0.c +
+    /* Tier key: one swatch per tier, lightest first, each labelled with the
+       exact mass it stands for. */
+    var by0 = hh + 8, bh0 = 11, nT = key.list.length;
+    var sw = Math.min(52, (VB - 4) / nT);
+    key.list.forEach(function (t, k) {
+      var x = k * sw;
+      o += '<rect x="' + x.toFixed(1) + '" y="' + by0.toFixed(1) + '" width="' +
+        (sw - 2).toFixed(1) + '" height="' + bh0 + '" fill="' + t.col +
         '" stroke="rgba(19,34,41,.35)" stroke-width=".5"/>';
+      o += '<text x="' + (x + (sw - 2) / 2).toFixed(1) + '" y="' + (by0 + bh0 + 12).toFixed(1) +
+        '" font-size="9.5" fill="#4A5F68" text-anchor="middle">' + f0(t.kg) + '</text>';
     });
-    HEAT_BANDS.concat([null]).forEach(function (_, k) {
-      var t = k / nB;
-      var x = t * bw0;
-      o += '<line x1="' + x.toFixed(1) + '" y1="' + (by0 + bh0).toFixed(1) +
-        '" x2="' + x.toFixed(1) + '" y2="' + (by0 + bh0 + 3).toFixed(1) +
-        '" stroke="rgba(19,34,41,.45)" stroke-width=".7"/>';
-      o += '<text x="' + x.toFixed(1) + '" y="' + (by0 + bh0 + 13).toFixed(1) +
-        '" font-size="9.5" fill="#4A5F68" text-anchor="' +
-        (t === 0 ? "start" : t === 1 ? "end" : "middle") + '">' +
-        f0(lo + t * (hi - lo)) + '</text>';
-    });
-    o += '<text x="' + (bw0 / 2).toFixed(0) + '" y="' + (by0 - 3).toFixed(1) +
-      '" font-size="9.5" fill="#4A5F68" text-anchor="middle">kg per ballast point</text>';
-    o += '<text x="' + (bw0 + 16) + '" y="' + (by0 + bh0 + 1).toFixed(1) +
-      '" font-size="11" fill="#4A5F68">north is up \u00b7 ' + sc.n + " points</text>";
+    o += '<text x="0" y="' + (by0 - 3).toFixed(1) +
+      '" font-size="9.5" fill="#4A5F68">kg to place at each point (tiers of ' + TIER_STEP +
+      ' kg)</text>';
+    o += '<text x="' + VB + '" y="' + (by0 - 3).toFixed(1) +
+      '" font-size="9.5" fill="#4A5F68" text-anchor="end">north is up \u00b7 ' + sc.n +
+      " points</text>";
 
     /* Each plane's own range, so a roof that is uniformly red is still readable. */
     if (stepped) {
@@ -6879,10 +6907,10 @@ aeffOut:
     }
     if (!all.length) return null;
 
-    var step = 25, map = {};
+    var map = {};
     all.forEach(function (rec) {
       if (!isFinite(rec.kg)) return;
-      var k = Math.ceil(rec.kg / step) * step;
+      var k = tierOf(rec.kg);
       if (!map[k]) map[k] = { kg: k, n: 0, maxE: 0, zones: {}, exposed: {} };
       map[k].n++; map[k].maxE = Math.max(map[k].maxE, rec.E);
       map[k].zones[rec.zone] = 1; map[k].exposed[rec.exposed || "shielded"] = 1;
@@ -6970,11 +6998,14 @@ aeffOut:
         'did not pass their applicability checks</b> and are shown blank. Fix those before ' +
         'relying on the totals.</p>';
 
+    var tKey = tierKey(sc);
     var rows = sc.tiers.map(function (t) {
       var depth = B.bay > 0 ? (t.kg / B.bay / B.rho) : Infinity;
       var fits = depth <= B.clearLo + 1e-9;
       var ex = Object.keys(t.exposed).filter(function (x) { return x !== "shielded"; });
-      return "<tr><td>" + f0(t.kg) + " kg</td><td>" + t.n + "</td><td>" +
+      var tk = tKey.of(t.kg);
+      return "<tr><td>" + (tk ? '<i class="tierchip" style="background:' + tk.col + '"></i>' : "") +
+        f0(t.kg) + " kg</td><td>" + t.n + "</td><td>" +
         f(t.kg * t.n / 1000, 2) + "</td><td>" + f(t.maxE, 2) + "</td><td>" +
         (ex.length ? ex.join(", ") : "shielded") + "</td><td>" +
         f(t.kg / B.bay, 0) + "</td><td class='" + (fits ? "fitok" : "fitbad") + "'>" +
@@ -7007,22 +7038,12 @@ aeffOut:
     host.innerHTML = '<div class="sched-grid"><div>' + kpi + perRoof + warn + tbl + '</div><div>' +
       heatMap(sc) +
       '<div class="tierlegend">' +
-      (function () {
-        /* One entry per band: its colour, the kg range it covers and how many
-           units fall in it, so the legend matches the plan colour for colour. */
-        var rg = heatRange(sc);
-        if (!rg) return "";
-        var n = HEAT_BANDS.length, span = rg.hi - rg.lo, cnt = HEAT_BANDS.map(function () { return 0; });
-        sc.recs.forEach(function (r) {
-          if (!isFinite(r.kg)) return;
-          cnt[heatBand(span > 0 ? (r.kg - rg.lo) / span : 0)]++;
-        });
-        return HEAT_BANDS.map(function (bd, k) {
-          var a = rg.lo + span * k / n, b = rg.lo + span * (k + 1) / n;
-          return '<span><i style="background:' + bd.c + '"></i>' + bd.n + " " +
-            (span > 0 ? f0(a) + "–" + f0(b) : f0(rg.lo)) + " kg (" + cnt[k] + ")</span>";
-        }).join("");
-      })() +
+      /* One entry per tier, heaviest first like the table: its colour, the
+         exact mass to place and how many points take it. */
+      tierKey(sc).list.slice().reverse().map(function (t) {
+        return '<span><i style="background:' + t.col + '"></i>' + f0(t.kg) + " kg × " +
+          t.n + "</span>";
+      }).join("") +
       '<span>hover a unit for its figures</span></div></div></div>';
     el("schedStamp").innerHTML = "swept " + sc.at.toTimeString().slice(0, 5) +
       " \u00b7 " + sc.n + " units";
@@ -9453,13 +9474,13 @@ aeffOut:
       if (hp) {
         fig++;
         heatFig = fig;
-        blocks.zone.push(cap("Figure " + fig + "    Ballast placement \u2014 the mass required at " +
-          "every point, green lightest to red heaviest, one scale for the whole job." +
+        blocks.zone.push(cap("Figure " + fig + "    Ballast placement \u2014 the tier mass to place " +
+          "at every point, green lightest to red heaviest, one scale for the whole job." +
           (SCHED && SCHED.byRoof ? " Heavy outline marks points on the upper block." : "")));
         blocks.zone.push(K.para(hp, { align: "center", spaceAfter: 4 }));
-        blocks.zone.push(note("Colour carries the pattern; the tier table above carries the values. " +
-          "The colour bands do not survive greyscale printing \u2014 read the numbers when this is " +
-          "printed in mono."));
+        blocks.zone.push(note("Each point is labelled with the mass to place there, from the tier " +
+          "table above. Colour groups the tiers; the number is the instruction. Where a point is " +
+          "too small to carry its number, read its tier from the colour key and the table."));
       }
       if (!blocks.zone.length)
         blocks.zone.push(note("The zone plan and placement figures could not be produced in this " +

@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="format-detection" content="telephone=no"/>
-<title>Ballast — rooftop PV ballast design · v88</title>
+<title>Ballast — rooftop PV ballast design · v89</title>
 <style>
 :root{
   --paper:#EDF0F1; --panel:#F8FAFA; --sunk:#E3E8E9;
@@ -571,7 +571,7 @@ tbody tr:last-child td{border-bottom:0}
       <span class="chip">rational design</span>
       <span class="chip">ASTM D1894</span>
       <span class="chip" id="chipCode">PV2-2017 basis</span>
-      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v88 · engine 4.3.5</span>
+      <span class="chip" id="verChip" title="Build and engine version. Compare this with the page title after uploading, to confirm the deployed copy is current.">v89 · engine 4.3.5</span>
     </div>
     <div class="tools">
       <button type="button" id="newBtn" class="go" title="Start a blank project. Clears the name, every evidence reference and all inherited assumptions.">New project</button>
@@ -6686,44 +6686,44 @@ aeffOut:
      Since v60 the records carry building coordinates, so the two planes sit in
      their true relative positions. Before that they shared one local frame and
      drew on top of each other. */
-  /* Eight stops rather than three. With only green-amber-red the whole middle of
-     the range collapses into one muddy band and a 500 kg point looks much like a
-     700 kg one. The stops below step through yellow-green, lime, yellow, amber,
-     orange and burnt orange, so a panel's colour can actually be read back off
-     the key. Hue moves monotonically and lightness falls monotonically toward
-     the red end.
+  /* v89: five fixed bands, not a continuous ramp. Until v89 the colour was
+     blended between eight stops, so a unit could land anywhere between two
+     named colours: a point just above the lightest read as a dark/light green
+     in-between, and one past the middle as a yellow/orange in-between. The key
+     names five colours, so each unit now gets exactly one of them, and the
+     legend gives the kg range each colour stands for.
 
-     Hue moves monotonically from green through to red, so the ORDER is carried
-     by hue. Luminance does not fall monotonically and cannot: a legible yellow
-     in the middle is brighter than either end. So this ramp does not survive
-     greyscale printing or severe red-green deficiency on colour alone. That is
-     why every point also carries its mass in the hover tooltip, why the key is
-     ticked with kg at the quarter points, and why the tier table beside it lists
-     the same figures numerically. Read the colours for the pattern; read the
-     numbers for the values. */
-  var HEAT_STOPS = [
-    { t: 0.00, c: [ 47, 125,  72], n: "green"        },
-    { t: 0.14, c: [104, 160,  70], n: "green"        },
-    { t: 0.28, c: [163, 187,  66], n: "yellow-green" },
-    { t: 0.42, c: [212, 205,  70], n: "lime"         },
-    { t: 0.56, c: [240, 196,  66], n: "yellow"       },
-    { t: 0.70, c: [232, 156,  52], n: "amber"        },
-    { t: 0.85, c: [214, 104,  44], n: "orange"       },
-    { t: 1.00, c: [176,  38,  38], n: "red"          }
+     The range lo..hi is split into five equal parts. The ORDER is carried by
+     hue; the bands are also spaced in lightness (dark green and red are dark,
+     light green, yellow and orange light) so neighbours stay apart. Colour is
+     still not the record: every point carries its mass in the hover tooltip and
+     the tier table lists the figures. Read the colours for the pattern; read
+     the numbers for the values. */
+  var HEAT_BANDS = [
+    { c: "#1B5E34", n: "dark green"  },
+    { c: "#8DC63F", n: "light green" },
+    { c: "#F7DC1E", n: "yellow"      },
+    { c: "#F07A12", n: "orange"      },
+    { c: "#C62828", n: "red"         }
   ];
 
-  function heatCol(t) {
-    if (!isFinite(t)) return "#E3E8E9";
+  /* Band index 0..4 for a position t in 0..1 along the job's kg range. The
+     small epsilon keeps a value sitting exactly on a boundary in the upper band
+     despite floating-point noise. */
+  function heatBand(t) {
+    if (!isFinite(t)) return -1;
     t = Math.max(0, Math.min(1, t));
-    var i = 0;
-    while (i < HEAT_STOPS.length - 2 && t > HEAT_STOPS[i + 1].t) i++;
-    var a = HEAT_STOPS[i], b = HEAT_STOPS[i + 1];
-    var span = b.t - a.t;
-    var u = span > 1e-9 ? (t - a.t) / span : 0;
-    u = Math.max(0, Math.min(1, u));
-    return "rgb(" + [0, 1, 2].map(function (k) {
-      return Math.round(a.c[k] + u * (b.c[k] - a.c[k]));
-    }).join(",") + ")";
+    return Math.min(HEAT_BANDS.length - 1, Math.floor(t * HEAT_BANDS.length + 1e-9));
+  }
+  function heatCol(t) {
+    var b = heatBand(t);
+    return b < 0 ? "#E3E8E9" : HEAT_BANDS[b].c;
+  }
+  /* The job's kg range, shared by the map and the legend under it. */
+  function heatRange(sc) {
+    var kgs = sc.recs.map(function (r) { return r.kg; }).filter(isFinite);
+    if (!kgs.length) return null;
+    return { lo: Math.min.apply(null, kgs), hi: Math.max.apply(null, kgs) };
   }
 
   function heatMap(sc) {
@@ -6745,9 +6745,9 @@ aeffOut:
     var VB = 620, sc2 = VB / W, hh = H * sc2;
     var footer = stepped ? 68 : 46;
 
-    var kgs = sc.recs.map(function (r) { return r.kg; }).filter(isFinite);
-    if (!kgs.length) return "";
-    var lo = Math.min.apply(null, kgs), hi = Math.max.apply(null, kgs);
+    var rg = heatRange(sc);
+    if (!rg) return "";
+    var lo = rg.lo, hi = rg.hi;
     function col(kg) {
       if (!isFinite(kg)) return "#E3E8E9";
       return heatCol(hi > lo ? (kg - lo) / (hi - lo) : 0);
@@ -6783,18 +6783,16 @@ aeffOut:
           .replace(/</g, "&lt;") : " \u00b7 shielded") + "</title></rect>";
     });
 
-    /* Colour key: a real gradient bar, so "varies" in the middle is legible. */
-    var by0 = hh + 8, bw0 = 190, bh0 = 9;
-    o += '<defs><linearGradient id="heatgrad" x1="0" y1="0" x2="1" y2="0">' +
-      HEAT_STOPS.map(function (st) {
-        return '<stop offset="' + (st.t * 100).toFixed(1) + '%" stop-color="' +
-          heatCol(st.t) + '"/>';
-      }).join("") + '</linearGradient></defs>';
-    o += '<rect x="0" y="' + by0.toFixed(1) + '" width="' + bw0 + '" height="' + bh0 +
-      '" fill="url(#heatgrad)" stroke="rgba(19,34,41,.25)" stroke-width=".5" rx="2"/>';
-    /* Ticks at the quarter points with the mass each colour stands for, so the
-       middle of the ramp can be read rather than just labelled "varies". */
-    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+    /* Colour key: one solid block per band, ticked with kg at every band edge,
+       so each colour on the plan can be read straight back to a mass range. */
+    var by0 = hh + 8, bw0 = 240, bh0 = 9, nB = HEAT_BANDS.length;
+    HEAT_BANDS.forEach(function (bd0, k) {
+      o += '<rect x="' + (k * bw0 / nB).toFixed(1) + '" y="' + by0.toFixed(1) +
+        '" width="' + (bw0 / nB).toFixed(1) + '" height="' + bh0 + '" fill="' + bd0.c +
+        '" stroke="rgba(19,34,41,.35)" stroke-width=".5"/>';
+    });
+    HEAT_BANDS.concat([null]).forEach(function (_, k) {
+      var t = k / nB;
       var x = t * bw0;
       o += '<line x1="' + x.toFixed(1) + '" y1="' + (by0 + bh0).toFixed(1) +
         '" x2="' + x.toFixed(1) + '" y2="' + (by0 + bh0 + 3).toFixed(1) +
@@ -7009,10 +7007,22 @@ aeffOut:
     host.innerHTML = '<div class="sched-grid"><div>' + kpi + perRoof + warn + tbl + '</div><div>' +
       heatMap(sc) +
       '<div class="tierlegend">' +
-      [0, 0.25, 0.5, 0.75, 1].map(function (t, ix) {
-        return '<span><i style="background:' + heatCol(t) + '"></i>' +
-          (ix === 0 ? "least ballast" : ix === 4 ? "most ballast" : "") + '</span>';
-      }).join("") +
+      (function () {
+        /* One entry per band: its colour, the kg range it covers and how many
+           units fall in it, so the legend matches the plan colour for colour. */
+        var rg = heatRange(sc);
+        if (!rg) return "";
+        var n = HEAT_BANDS.length, span = rg.hi - rg.lo, cnt = HEAT_BANDS.map(function () { return 0; });
+        sc.recs.forEach(function (r) {
+          if (!isFinite(r.kg)) return;
+          cnt[heatBand(span > 0 ? (r.kg - rg.lo) / span : 0)]++;
+        });
+        return HEAT_BANDS.map(function (bd, k) {
+          var a = rg.lo + span * k / n, b = rg.lo + span * (k + 1) / n;
+          return '<span><i style="background:' + bd.c + '"></i>' + bd.n + " " +
+            (span > 0 ? f0(a) + "–" + f0(b) : f0(rg.lo)) + " kg (" + cnt[k] + ")</span>";
+        }).join("");
+      })() +
       '<span>hover a unit for its figures</span></div></div></div>';
     el("schedStamp").innerHTML = "swept " + sc.at.toTimeString().slice(0, 5) +
       " \u00b7 " + sc.n + " units";
@@ -9448,7 +9458,7 @@ aeffOut:
           (SCHED && SCHED.byRoof ? " Heavy outline marks points on the upper block." : "")));
         blocks.zone.push(K.para(hp, { align: "center", spaceAfter: 4 }));
         blocks.zone.push(note("Colour carries the pattern; the tier table above carries the values. " +
-          "The ramp does not survive greyscale printing \u2014 read the numbers when this is " +
+          "The colour bands do not survive greyscale printing \u2014 read the numbers when this is " +
           "printed in mono."));
       }
       if (!blocks.zone.length)
